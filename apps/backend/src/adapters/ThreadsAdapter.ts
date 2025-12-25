@@ -4,6 +4,7 @@ import {
   PublishPostData,
   PublishResult,
 } from "./BasePlatformAdapter.js";
+import { log } from "../config/logger.js";
 
 interface ThreadsMediaContainer {
   id: string;
@@ -23,8 +24,8 @@ export class ThreadsAdapter extends BasePlatformAdapter {
     this.baseUrl = `https://graph.threads.net/${this.apiVersion}`;
 
     if (!this.userId || !this.accessToken) {
-      console.warn(
-        "⚠️  Threads credentials not configured. Set THREADS_USER_ID and THREADS_ACCESS_TOKEN or pass them as constructor parameters."
+      log.warn(
+        "Threads credentials not configured. Set THREADS_USER_ID and THREADS_ACCESS_TOKEN or pass them as constructor parameters."
       );
     }
   }
@@ -38,7 +39,7 @@ export class ThreadsAdapter extends BasePlatformAdapter {
       const response = await axios.head(url, { timeout: 5000 });
       return response.status === 200;
     } catch (error) {
-      console.error(`Media validation failed for ${url}:`, error);
+      log.error(`Media validation failed for ${url}`, error);
       return false;
     }
   }
@@ -52,7 +53,7 @@ export class ThreadsAdapter extends BasePlatformAdapter {
         };
       }
 
-      // Determine post type and create media containers
+      // Step 1: Determine post type and create media containers
       let containerId: string;
 
       if (data.videoUrl) {
@@ -78,15 +79,34 @@ export class ThreadsAdapter extends BasePlatformAdapter {
         containerId = await this.createTextContainer(data.content);
       }
 
-      // Publish the container
+      // Step 2: Publish the container
       const postId = await this.publishContainer(containerId);
+      log.thread(`Post published successfully with ID: ${postId}`);
+
+      // Step 3: Wait 30 seconds before posting comment (if provided)
+      if (data.comment) {
+        log.info("Waiting 30 seconds before posting comment...");
+        await new Promise((resolve) => setTimeout(resolve, 30000));
+
+        // Step 4: Create comment text container
+        log.thread("Creating comment container...");
+        const commentContainerId = await this.createCommentContainer(
+          postId,
+          data.comment
+        );
+
+        // Step 5: Publish the comment
+        log.thread("Publishing comment...");
+        await this.publishContainer(commentContainerId);
+        log.success("Comment published successfully!");
+      }
 
       return {
         success: true,
         platformPostId: postId,
       };
     } catch (error: any) {
-      console.error("Threads publish error:", error);
+      log.error("Threads publish error", error);
 
       // Extract error message from Threads API response
       let errorMessage = "Failed to publish to Threads";
@@ -117,6 +137,22 @@ export class ThreadsAdapter extends BasePlatformAdapter {
       {
         media_type: "TEXT",
         text,
+        access_token: this.accessToken,
+      }
+    );
+    return response.data.id;
+  }
+
+  private async createCommentContainer(
+    replyToId: string,
+    text: string
+  ): Promise<string> {
+    const response = await axios.post(
+      `${this.baseUrl}/${this.userId}/threads`,
+      {
+        media_type: "TEXT",
+        text,
+        reply_to_id: replyToId,
         access_token: this.accessToken,
       }
     );
@@ -157,21 +193,30 @@ export class ThreadsAdapter extends BasePlatformAdapter {
 
   private async createCarouselContainer(
     text: string,
-    imageUrls: string[]
+    mediaUrls: string[]
   ): Promise<string> {
-    // Create individual media containers
+    // Create individual media containers (supports both images and videos)
     const mediaContainerIds: string[] = [];
 
-    for (const imageUrl of imageUrls.slice(0, 10)) {
+    for (const mediaUrl of mediaUrls.slice(0, 10)) {
       // Threads supports up to 10 items
+      const mediaType = this.detectMediaType(mediaUrl);
+
+      const payload: any = {
+        media_type: mediaType,
+        is_carousel_item: true,
+        access_token: this.accessToken,
+      };
+
+      if (mediaType === "VIDEO") {
+        payload.video_url = mediaUrl;
+      } else {
+        payload.image_url = mediaUrl;
+      }
+
       const response = await axios.post(
         `${this.baseUrl}/${this.userId}/threads`,
-        {
-          media_type: "IMAGE",
-          image_url: imageUrl,
-          is_carousel_item: true,
-          access_token: this.accessToken,
-        }
+        payload
       );
       mediaContainerIds.push(response.data.id);
     }
@@ -187,6 +232,23 @@ export class ThreadsAdapter extends BasePlatformAdapter {
       }
     );
     return response.data.id;
+  }
+
+  private detectMediaType(url: string): "IMAGE" | "VIDEO" {
+    const videoExtensions = [
+      ".mp4",
+      ".mov",
+      ".avi",
+      ".webm",
+      ".mkv",
+      ".flv",
+      ".wmv",
+      ".m4v",
+    ];
+    const lowerUrl = url.toLowerCase();
+    return videoExtensions.some((ext) => lowerUrl.includes(ext))
+      ? "VIDEO"
+      : "IMAGE";
   }
 
   private async publishContainer(containerId: string): Promise<string> {

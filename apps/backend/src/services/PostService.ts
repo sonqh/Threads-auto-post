@@ -114,6 +114,8 @@ export class PostService {
       const result = await adapter.publishPost({
         content: post.content,
         mediaUrls: post.imageUrls,
+        videoUrl: post.videoUrl,
+        comment: post.comment, // Include comment if provided
       });
 
       // Update post with result

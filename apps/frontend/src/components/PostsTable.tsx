@@ -62,6 +62,8 @@ export const PostsTable = ({
           <TableHead>Content</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Type</TableHead>
+          <TableHead>Links</TableHead>
+          <TableHead>Comment</TableHead>
           <TableHead>Scheduled</TableHead>
           <TableHead>Topic</TableHead>
           <TableHead className="text-right">Actions</TableHead>

@@ -8,6 +8,7 @@ dotenvConfig.config();
 // Now safe to import config that depends on env vars
 import { connectDatabase } from "./config/database.js";
 import { appConfig } from "./config/env.js";
+import { log } from "./config/logger.js";
 import credentialsRouter from "./routes/credentials.js";
 import excelRouter from "./routes/excel.js";
 import postsRouter from "./routes/posts.js";
@@ -35,14 +36,14 @@ const startServer = async () => {
   try {
     await connectDatabase();
     app.listen(PORT, () => {
-      console.log(`🚀 Server running on http://localhost:${PORT}`);
-      console.log(`📝 API available at http://localhost:${PORT}/api`);
-      console.log(
-        `🔐 Credentials API available at http://localhost:${PORT}/api/credentials`
+      log.success(`Server running on http://localhost:${PORT}`);
+      log.info(`API available at http://localhost:${PORT}/api`);
+      log.info(
+        `Credentials API available at http://localhost:${PORT}/api/credentials`
       );
     });
   } catch (error) {
-    console.error("Failed to start server:", error);
+    log.error("Failed to start server", error);
     process.exit(1);
   }
 };

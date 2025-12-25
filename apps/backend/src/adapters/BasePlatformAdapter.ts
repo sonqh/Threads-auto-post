@@ -7,6 +7,7 @@ export interface PublishPostData {
   content: string;
   mediaUrls?: string[];
   videoUrl?: string;
+  comment?: string; // Optional comment to post after the main post
 }
 
 export interface PublishResult {

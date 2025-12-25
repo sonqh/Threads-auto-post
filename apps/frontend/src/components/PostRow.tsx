@@ -86,6 +86,40 @@ export const PostRow: React.FC<PostRowProps> = ({
       </TableCell>
 
       <TableCell>
+        {post.imageUrls && post.imageUrls.length > 0 ? (
+          <div className="text-xs text-gray-600">
+            {post.imageUrls.map((url, idx) => (
+              <a
+                key={idx}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block truncate max-w-[150px] hover:text-blue-600"
+                title={url}
+              >
+                Link {idx + 1}
+              </a>
+            ))}
+          </div>
+        ) : (
+          <span className="text-sm text-gray-400">-</span>
+        )}
+      </TableCell>
+
+      <TableCell>
+        {post.comment ? (
+          <p
+            className="text-xs text-gray-600 line-clamp-2 max-w-[150px]"
+            title={post.comment}
+          >
+            {post.comment}
+          </p>
+        ) : (
+          <span className="text-sm text-gray-400">-</span>
+        )}
+      </TableCell>
+
+      <TableCell>
         {post.scheduledAt ? (
           <span className="text-sm text-gray-600">
             {format(new Date(post.scheduledAt), "MMM dd, HH:mm")}

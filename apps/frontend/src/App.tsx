@@ -1,11 +1,8 @@
-import { useState } from 'react';
-import { ExcelImporter } from './components/ExcelImporter';
-import { PostsList } from './components/PostsList';
-import { FileText } from 'lucide-react';
+import { ExcelImporter } from "./components/ExcelImporter";
+import { PostsList } from "./components/PostsList";
+import { FileText } from "lucide-react";
 
 function App() {
-  const [refreshKey, setRefreshKey] = useState(0);
-
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
@@ -21,8 +18,8 @@ function App() {
       </header>
 
       <main className="container mx-auto px-4 py-8 space-y-8">
-        <ExcelImporter onImportComplete={() => setRefreshKey((k) => k + 1)} />
-        <PostsList refresh={refreshKey} />
+        <ExcelImporter />
+        <PostsList />
       </main>
     </div>
   );

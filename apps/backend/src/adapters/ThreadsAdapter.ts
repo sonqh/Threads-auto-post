@@ -15,16 +15,16 @@ export class ThreadsAdapter extends BasePlatformAdapter {
   private apiVersion: string;
   private baseUrl: string;
 
-  constructor() {
+  constructor(userId?: string, accessToken?: string) {
     super();
-    this.userId = process.env.THREADS_USER_ID || "";
-    this.accessToken = process.env.THREADS_ACCESS_TOKEN || "";
+    this.userId = userId || process.env.THREADS_USER_ID || "";
+    this.accessToken = accessToken || process.env.THREADS_ACCESS_TOKEN || "";
     this.apiVersion = process.env.THREADS_API_VERSION || "v1.0";
     this.baseUrl = `https://graph.threads.net/${this.apiVersion}`;
 
     if (!this.userId || !this.accessToken) {
       console.warn(
-        "⚠️  Threads credentials not configured. Set THREADS_USER_ID and THREADS_ACCESS_TOKEN."
+        "⚠️  Threads credentials not configured. Set THREADS_USER_ID and THREADS_ACCESS_TOKEN or pass them as constructor parameters."
       );
     }
   }

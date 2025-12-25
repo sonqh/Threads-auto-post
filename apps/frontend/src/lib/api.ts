@@ -59,6 +59,17 @@ export const postsApi = {
     await axios.delete(`${API_BASE_URL}/posts/${id}`);
   },
 
+  async bulkDelete(ids: string[]): Promise<{
+    success: boolean;
+    deletedCount: number;
+    message: string;
+  }> {
+    const response = await axios.post(`${API_BASE_URL}/excel/bulk-delete`, {
+      postIds: ids,
+    });
+    return response.data;
+  },
+
   async schedulePost(id: string, scheduledAt: string): Promise<Post> {
     const response = await axios.post(`${API_BASE_URL}/posts/${id}/schedule`, {
       scheduledAt,
@@ -68,6 +79,16 @@ export const postsApi = {
 
   async cancelSchedule(id: string): Promise<Post> {
     const response = await axios.post(`${API_BASE_URL}/posts/${id}/cancel`);
+    return response.data;
+  },
+
+  async publishPost(id: string): Promise<{
+    success: boolean;
+    threadsPostId?: string;
+    error?: string;
+    post?: Post;
+  }> {
+    const response = await axios.post(`${API_BASE_URL}/posts/${id}/publish`);
     return response.data;
   },
 };

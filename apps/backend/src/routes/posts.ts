@@ -1,32 +1,20 @@
 import { Router } from "express";
-import { Post, PostStatus, PostType } from "../models/Post.js";
-import { schedulePost, cancelScheduledPost } from "../queue/postQueue.js";
+import { PostService } from "../services/PostService.js";
 
 const router = Router();
+const postService = new PostService();
 
 // Get all posts
 router.get("/", async (req, res) => {
   try {
     const { status, limit = 50, skip = 0 } = req.query;
-
-    const query: any = {};
-    if (status) {
-      query.status = status;
-    }
-
-    const posts = await Post.find(query)
-      .sort({ createdAt: -1 })
-      .limit(Number(limit))
-      .skip(Number(skip));
-
-    const total = await Post.countDocuments(query);
-
-    res.json({
-      data: posts,
-      total,
+    const options = {
+      status: status as string | undefined,
       limit: Number(limit),
       skip: Number(skip),
-    });
+    };
+    const posts = await postService.getPosts(options);
+    res.json(posts);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     res.status(500).json({ error: message });
@@ -36,7 +24,7 @@ router.get("/", async (req, res) => {
 // Get single post
 router.get("/:id", async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id);
+    const post = await postService.getPost(req.params.id);
     if (!post) {
       return res.status(404).json({ error: "Post not found" });
     }
@@ -50,17 +38,7 @@ router.get("/:id", async (req, res) => {
 // Create post
 router.post("/", async (req, res) => {
   try {
-    const postData = req.body;
-    const post = new Post(postData);
-    await post.save();
-
-    // If scheduled, add to queue
-    if (post.scheduledAt && post.status === PostStatus.SCHEDULED) {
-      const jobId = await schedulePost(post._id.toString(), post.scheduledAt);
-      post.jobId = jobId;
-      await post.save();
-    }
-
+    const post = await postService.createPost(req.body);
     res.status(201).json(post);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -71,26 +49,7 @@ router.post("/", async (req, res) => {
 // Update post
 router.put("/:id", async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id);
-    if (!post) {
-      return res.status(404).json({ error: "Post not found" });
-    }
-
-    // Cancel existing job if rescheduling
-    if (post.jobId && req.body.scheduledAt) {
-      await cancelScheduledPost(post.jobId);
-    }
-
-    Object.assign(post, req.body);
-    await post.save();
-
-    // Reschedule if needed
-    if (post.scheduledAt && post.status === PostStatus.SCHEDULED) {
-      const jobId = await schedulePost(post._id.toString(), post.scheduledAt);
-      post.jobId = jobId;
-      await post.save();
-    }
-
+    const post = await postService.updatePost(req.params.id, req.body);
     res.json(post);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -101,17 +60,7 @@ router.put("/:id", async (req, res) => {
 // Delete post
 router.delete("/:id", async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id);
-    if (!post) {
-      return res.status(404).json({ error: "Post not found" });
-    }
-
-    // Cancel scheduled job if exists
-    if (post.jobId) {
-      await cancelScheduledPost(post.jobId);
-    }
-
-    await Post.findByIdAndDelete(req.params.id);
+    await postService.deletePost(req.params.id);
     res.json({ message: "Post deleted successfully" });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -119,40 +68,46 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+// Bulk delete posts
+router.post("/bulk-delete", async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids)) {
+      return res.status(400).json({ error: "ids array is required" });
+    }
+    await postService.bulkDelete(ids);
+    res.json({ message: "Posts deleted successfully" });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    res.status(500).json({ error: message });
+  }
+});
+
+// Publish post to Threads
+router.post("/:id/publish", async (req, res) => {
+  try {
+    const post = await postService.publishPost(req.params.id);
+    res.json(post);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    res.status(400).json({ error: message });
+  }
+});
+
 // Schedule post
 router.post("/:id/schedule", async (req, res) => {
   try {
     const { scheduledAt } = req.body;
-
     if (!scheduledAt) {
       return res.status(400).json({ error: "scheduledAt is required" });
     }
-
-    const post = await Post.findById(req.params.id);
-    if (!post) {
-      return res.status(404).json({ error: "Post not found" });
-    }
-
     const scheduledDate = new Date(scheduledAt);
     if (scheduledDate <= new Date()) {
       return res
         .status(400)
         .json({ error: "Scheduled time must be in the future" });
     }
-
-    // Cancel existing job
-    if (post.jobId) {
-      await cancelScheduledPost(post.jobId);
-    }
-
-    // Schedule new job
-    const jobId = await schedulePost(post._id.toString(), scheduledDate);
-
-    post.scheduledAt = scheduledDate;
-    post.status = PostStatus.SCHEDULED;
-    post.jobId = jobId;
-    await post.save();
-
+    const post = await postService.schedulePost(req.params.id, scheduledDate);
     res.json(post);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -163,19 +118,7 @@ router.post("/:id/schedule", async (req, res) => {
 // Cancel scheduled post
 router.post("/:id/cancel", async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id);
-    if (!post) {
-      return res.status(404).json({ error: "Post not found" });
-    }
-
-    if (post.jobId) {
-      await cancelScheduledPost(post.jobId);
-    }
-
-    post.status = PostStatus.DRAFT;
-    post.jobId = undefined;
-    await post.save();
-
+    const post = await postService.cancelSchedule(req.params.id);
     res.json(post);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";

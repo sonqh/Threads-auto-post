@@ -3,6 +3,7 @@ import {
   BasePlatformAdapter,
   PublishPostData,
   PublishResult,
+  CommentPublishResult,
 } from "./BasePlatformAdapter.js";
 import { log } from "../config/logger.js";
 
@@ -92,9 +93,12 @@ export class ThreadsAdapter extends BasePlatformAdapter {
   }
 
   async publishPost(data: PublishPostData): Promise<PublishResult> {
+    let commentResult: CommentPublishResult | undefined;
+
     try {
       log.info("🚀 Starting publishPost", {
         hasComment: !!data.comment,
+        skipComment: data.skipComment || false,
         hasVideoUrl: !!data.videoUrl,
         mediaUrlsCount: data.mediaUrls?.length || 0,
         contentLength: data.content.length,
@@ -118,7 +122,7 @@ export class ThreadsAdapter extends BasePlatformAdapter {
           data.content,
           data.videoUrl
         );
-        log.debug(`✅ Video container created: ${containerId}`);
+        log.debug(` Video container created: ${containerId}`);
       } else if (data.mediaUrls && data.mediaUrls.length > 1) {
         log.debug(
           `🎠 Creating carousel container with ${data.mediaUrls.length} images`
@@ -128,7 +132,7 @@ export class ThreadsAdapter extends BasePlatformAdapter {
           data.content,
           data.mediaUrls
         );
-        log.debug(`✅ Carousel container created: ${containerId}`);
+        log.debug(` Carousel container created: ${containerId}`);
       } else if (data.mediaUrls && data.mediaUrls.length === 1) {
         log.debug(`🖼️ Creating image container`);
         // Single image post
@@ -136,12 +140,12 @@ export class ThreadsAdapter extends BasePlatformAdapter {
           data.content,
           data.mediaUrls[0]
         );
-        log.debug(`✅ Image container created: ${containerId}`);
+        log.debug(` Image container created: ${containerId}`);
       } else {
         log.debug("📝 Creating text-only container");
         // Text-only post
         containerId = await this.createTextContainer(data.content);
-        log.debug(`✅ Text container created: ${containerId}`);
+        log.debug(` Text container created: ${containerId}`);
       }
 
       // Step 2: Publish the container
@@ -149,86 +153,27 @@ export class ThreadsAdapter extends BasePlatformAdapter {
       const postId = await this.publishContainer(containerId);
       log.thread(`🧵 Post published successfully with ID: ${postId}`);
 
-      // Step 3: Handle comments with link limit
-      if (data.comment) {
-        // Check if comment has more than 5 links
-        const commentUrls = this.extractUrls(data.comment);
-        log.info("💬 Analyzing comment", {
-          totalUrls: commentUrls.length,
-          commentLength: data.comment.length,
-        });
+      // Step 3: Handle comments (unless skipComment is true)
+      // Comment failures should NOT fail the entire post - track separately
+      if (data.comment && !data.skipComment) {
+        log.info("💬 Publishing comment separately from post...");
+        commentResult = await this.publishComment(postId, data.comment);
 
-        if (commentUrls.length > 5) {
-          // Split comment into multiple parts
-          const commentParts = this.splitCommentByLinkLimit(data.comment, 5);
-          log.info(
-            `💬 Comment split into ${commentParts.length} parts due to link limit`
+        if (!commentResult.success) {
+          log.warn(
+            `⚠️ Comment failed but post succeeded. Comment error: ${commentResult.error}`
           );
-
-          // IMPORTANT: All comment parts should reply to the ORIGINAL POST, not to each other
-          // This prevents creating a chain of replies
-          const replyToId = postId; // All comments reply to the original post
-
-          for (let i = 0; i < commentParts.length; i++) {
-            const part = commentParts[i];
-            const partUrls = this.extractUrls(part);
-
-            log.info(
-              `💬 Posting comment part ${i + 1}/${commentParts.length}`,
-              {
-                urlCount: partUrls.length,
-                textLength: part.length,
-                replyingTo: replyToId,
-                note: "All parts reply to original post",
-              }
-            );
-
-            await new Promise((resolve) => setTimeout(resolve, 30000)); // Wait 30s between comments
-
-            const commentContainerId = await this.createCommentContainer(
-              replyToId,
-              part
-            );
-            log.debug(`✅ Comment container created: ${commentContainerId}`);
-
-            const commentPostId = await this.publishContainer(
-              commentContainerId
-            );
-            log.success(
-              `💬 Comment part ${
-                i + 1
-              } published successfully with ID: ${commentPostId}`
-            );
-
-            // Note: replyToId stays as postId - all parts reply to original post
-          }
-        } else {
-          // Original flow: single comment
-          log.info("💬 Comment within link limit, posting single comment", {
-            urlCount: commentUrls.length,
-          });
-
-          await new Promise((resolve) => setTimeout(resolve, 30000));
-
-          log.info(`Creating comment container for post ${postId}...`);
-          const commentContainerId = await this.createCommentContainer(
-            postId,
-            data.comment
-          );
-          log.debug(`✅ Comment container created: ${commentContainerId}`);
-
-          log.info(`📤 Publishing comment container ${commentContainerId}`);
-          await this.publishContainer(commentContainerId);
-          log.success("💬 Comment published successfully!");
+          // Don't throw - post is still successful
         }
       }
 
       return {
         success: true,
         platformPostId: postId,
+        commentResult, // Include comment result for separate tracking
       };
     } catch (error: any) {
-      log.error("❌ Error in publishPost", {
+      log.error("Error in publishPost", {
         errorType: error.constructor.name,
         errorMessage: error.message,
       });
@@ -266,6 +211,109 @@ export class ThreadsAdapter extends BasePlatformAdapter {
         if (apiError.code === 190 || errorMessage.includes("expired")) {
           errorMessage = `Access token has expired. Please refresh your token. Details: ${errorMessage}`;
         }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Publish a comment to an existing post
+   * This method is idempotent and always replies to the ORIGINAL post ID
+   * to ensure comments are not chained as replies to each other
+   */
+  async publishComment(
+    originPostId: string,
+    comment: string
+  ): Promise<CommentPublishResult> {
+    try {
+      log.info("💬 Starting publishComment", {
+        originPostId,
+        commentLength: comment.length,
+      });
+
+      // Check if comment has more than 5 links - split if needed
+      const commentUrls = this.extractUrls(comment);
+      log.info("💬 Analyzing comment", {
+        totalUrls: commentUrls.length,
+        commentLength: comment.length,
+      });
+
+      let lastCommentId: string | undefined;
+
+      if (commentUrls.length > 5) {
+        // Split comment into multiple parts
+        const commentParts = this.splitCommentByLinkLimit(comment, 5);
+        log.info(
+          `💬 Comment split into ${commentParts.length} parts due to link limit`
+        );
+
+        // IMPORTANT: All comment parts reply to the ORIGINAL POST, not to each other
+        for (let i = 0; i < commentParts.length; i++) {
+          const part = commentParts[i];
+          const partUrls = this.extractUrls(part);
+
+          log.info(`💬 Posting comment part ${i + 1}/${commentParts.length}`, {
+            urlCount: partUrls.length,
+            textLength: part.length,
+            replyingTo: originPostId,
+            note: "All parts reply to original post",
+          });
+
+          if (i > 0) {
+            // Wait 30s between comments to avoid rate limiting
+            await new Promise((resolve) => setTimeout(resolve, 30000));
+          }
+
+          const commentContainerId = await this.createCommentContainer(
+            originPostId,
+            part
+          );
+          log.debug(` Comment container created: ${commentContainerId}`);
+
+          lastCommentId = await this.publishContainer(commentContainerId);
+          log.success(
+            `💬 Comment part ${i + 1} published with ID: ${lastCommentId}`
+          );
+        }
+      } else {
+        // Single comment
+        log.info("💬 Comment within link limit, posting single comment", {
+          urlCount: commentUrls.length,
+        });
+
+        const commentContainerId = await this.createCommentContainer(
+          originPostId,
+          comment
+        );
+        log.debug(` Comment container created: ${commentContainerId}`);
+
+        lastCommentId = await this.publishContainer(commentContainerId);
+        log.success(`💬 Comment published with ID: ${lastCommentId}`);
+      }
+
+      return {
+        success: true,
+        commentId: lastCommentId,
+      };
+    } catch (error: any) {
+      log.error("Error in publishComment", {
+        errorType: error.constructor.name,
+        errorMessage: error.message,
+        originPostId,
+      });
+
+      // Extract error message
+      let errorMessage = "Failed to publish comment";
+      if (axios.isAxiosError(error) && error.response?.data?.error) {
+        const apiError = error.response.data.error;
+        errorMessage =
+          apiError.message || apiError.error_user_msg || errorMessage;
       } else if (error.message) {
         errorMessage = error.message;
       }
@@ -364,7 +412,7 @@ export class ThreadsAdapter extends BasePlatformAdapter {
         payload
       );
 
-      log.info(`✅ Image container response:`, {
+      log.info(` Image container response:`, {
         containerId: response.data.id,
         status: response.status,
       });
@@ -372,7 +420,7 @@ export class ThreadsAdapter extends BasePlatformAdapter {
       return response.data.id;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        log.error(`❌ Failed to create image container`, {
+        log.error(`Failed to create image container`, {
           status: error.response?.status,
           statusText: error.response?.statusText,
           errorMessage: error.response?.data?.error?.message,
@@ -436,9 +484,9 @@ export class ThreadsAdapter extends BasePlatformAdapter {
         );
         const childId = response.data.id;
         mediaContainerIds.push(childId);
-        log.debug(`  ✅ Child ${i + 1} created: ${childId}`);
+        log.debug(`   Child ${i + 1} created: ${childId}`);
       } catch (error) {
-        log.error(`  ❌ Failed to create child ${i + 1}:`, {
+        log.error(`  Failed to create child ${i + 1}:`, {
           error: error instanceof Error ? error.message : String(error),
           mediaUrl,
         });
@@ -446,7 +494,7 @@ export class ThreadsAdapter extends BasePlatformAdapter {
       }
     }
 
-    log.info(`✅ All ${mediaContainerIds.length} carousel items created`);
+    log.info(` All ${mediaContainerIds.length} carousel items created`);
     log.debug(`Carousel child IDs: ${mediaContainerIds.join(", ")}`);
 
     // Wait briefly for all children to be processed (optional but recommended)
@@ -464,10 +512,10 @@ export class ThreadsAdapter extends BasePlatformAdapter {
           access_token: this.accessToken,
         }
       );
-      log.success(`✅ Carousel container created: ${response.data.id}`);
+      log.success(` Carousel container created: ${response.data.id}`);
       return response.data.id;
     } catch (error) {
-      log.error("❌ Failed to create carousel container:", {
+      log.error("Failed to create carousel container:", {
         error: error instanceof Error ? error.message : String(error),
         childIds: mediaContainerIds,
       });
@@ -509,7 +557,7 @@ export class ThreadsAdapter extends BasePlatformAdapter {
         payload
       );
 
-      log.info(`✅ Container published`, {
+      log.info(` Container published`, {
         publishedId: response.data.id,
         status: response.status,
         containerId,
@@ -518,7 +566,7 @@ export class ThreadsAdapter extends BasePlatformAdapter {
       return response.data.id;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        log.error(`❌ Failed to publish container`, {
+        log.error(`Failed to publish container`, {
           status: error.response?.status,
           statusText: error.response?.statusText,
           errorMessage: error.response?.data?.error?.message,

@@ -25,11 +25,11 @@ export const queueEvents = new QueueEvents("post-publishing", { connection });
 
 // Log queue events
 queueEvents.on("completed", ({ jobId }) => {
-  console.log(`✅ Job ${jobId} completed successfully`);
+  console.log(` Job ${jobId} completed successfully`);
 });
 
 queueEvents.on("failed", ({ jobId, failedReason }) => {
-  console.error(`❌ Job ${jobId} failed:`, failedReason);
+  console.error(`Job ${jobId} failed:`, failedReason);
 });
 
 export const schedulePost = async (postId: string, scheduledAt: Date) => {

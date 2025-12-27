@@ -4,13 +4,13 @@ A full-stack application for scheduling and managing Threads posts with Excel im
 
 ## Features
 
-✅ **Full-Stack Monorepo** - Turbopack for unified backend and frontend development  
-✅ **Excel Import** - Import posts from Excel with Vietnamese column names  
-✅ **Post Scheduling** - Schedule posts using BullMQ and Redis  
-✅ **Threads Integration** - Publish to Threads using the Graph API  
-✅ **Platform Adapter Pattern** - Extensible design for future platforms (Facebook, TikTok)  
-✅ **Modern UI** - Built with React, Shadcn UI, and TailwindCSS  
-✅ **Containerization** - Podman support for MongoDB and Redis
+**Full-Stack Monorepo** - Turbopack for unified backend and frontend development  
+ **Excel Import** - Import posts from Excel with Vietnamese column names  
+ **Post Scheduling** - Schedule posts using BullMQ and Redis  
+ **Threads Integration** - Publish to Threads using the Graph API  
+ **Platform Adapter Pattern** - Extensible design for future platforms (Facebook, TikTok)  
+ **Modern UI** - Built with React, Shadcn UI, and TailwindCSS  
+ **Containerization** - Podman support for MongoDB and Redis
 
 ## Quick Start
 

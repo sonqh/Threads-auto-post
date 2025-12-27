@@ -31,22 +31,22 @@ export const SchedulerDebug: React.FC = () => {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
       const data = await response.json();
-      
+
       setStats(data);
-      
+
       // Add log entry
       const newLog: SchedulerLog = {
         timestamp: new Date().toLocaleTimeString(),
-        message: `📊 Stats: Active=${data.activeJobs}, Completed=${data.completedJobs}, Failed=${data.failedJobs}, Waiting=${data.waitingJobs}`,
+        message: `Stats: Active=${data.activeJobs}, Completed=${data.completedJobs}, Failed=${data.failedJobs}, Waiting=${data.waitingJobs}`,
         type: "success",
       };
-      
+
       setLogs((prev) => [newLog, ...prev].slice(0, 50)); // Keep last 50 logs
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       const newLog: SchedulerLog = {
         timestamp: new Date().toLocaleTimeString(),
-        message: `❌ Failed to fetch stats: ${errorMsg}`,
+        message: `Failed to fetch stats: ${errorMsg}`,
         type: "error",
       };
       setLogs((prev) => [newLog, ...prev].slice(0, 50));
@@ -110,19 +110,27 @@ export const SchedulerDebug: React.FC = () => {
           {stats && (
             <div className="bg-gray-50 border-b border-gray-200 px-4 py-2 grid grid-cols-4 gap-2 text-xs">
               <div className="text-center">
-                <div className="font-semibold text-green-600">{stats.activeJobs}</div>
+                <div className="font-semibold text-green-600">
+                  {stats.activeJobs}
+                </div>
                 <div className="text-gray-600">Active</div>
               </div>
               <div className="text-center">
-                <div className="font-semibold text-blue-600">{stats.waitingJobs}</div>
+                <div className="font-semibold text-blue-600">
+                  {stats.waitingJobs}
+                </div>
                 <div className="text-gray-600">Waiting</div>
               </div>
               <div className="text-center">
-                <div className="font-semibold text-purple-600">{stats.completedJobs}</div>
+                <div className="font-semibold text-purple-600">
+                  {stats.completedJobs}
+                </div>
                 <div className="text-gray-600">Done</div>
               </div>
               <div className="text-center">
-                <div className="font-semibold text-red-600">{stats.failedJobs}</div>
+                <div className="font-semibold text-red-600">
+                  {stats.failedJobs}
+                </div>
                 <div className="text-gray-600">Failed</div>
               </div>
             </div>
@@ -162,7 +170,10 @@ export const SchedulerDebug: React.FC = () => {
               <div className="text-gray-400 py-4 text-center">No logs yet</div>
             ) : (
               logs.map((log, idx) => (
-                <div key={idx} className={`${getLogColor(log.type)} p-1 rounded`}>
+                <div
+                  key={idx}
+                  className={`${getLogColor(log.type)} p-1 rounded`}
+                >
                   <span className="text-gray-600">[{log.timestamp}]</span>{" "}
                   <span>{log.message}</span>
                 </div>

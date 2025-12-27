@@ -129,7 +129,7 @@ router.post("/:id/schedule", async (req, res) => {
     console.log(`   Days of Week: ${daysOfWeek || "N/A"}`);
 
     if (!pattern || !scheduledAt) {
-      console.log(`❌ Invalid request: missing pattern or scheduledAt`);
+      console.log(`Invalid request: missing pattern or scheduledAt`);
       return res
         .status(400)
         .json({ error: "pattern and scheduledAt are required" });
@@ -138,7 +138,7 @@ router.post("/:id/schedule", async (req, res) => {
     // Validate pattern
     const validPatterns = ["ONCE", "WEEKLY", "MONTHLY", "DATE_RANGE"];
     if (!validPatterns.includes(pattern)) {
-      console.log(`❌ Invalid pattern: ${pattern}`);
+      console.log(`Invalid pattern: ${pattern}`);
       return res.status(400).json({
         error: `Invalid pattern. Must be one of: ${validPatterns.join(", ")}`,
       });
@@ -146,7 +146,7 @@ router.post("/:id/schedule", async (req, res) => {
 
     const scheduledDate = new Date(scheduledAt);
     if (isNaN(scheduledDate.getTime())) {
-      console.log(`❌ Invalid date format: ${scheduledAt}`);
+      console.log(`Invalid date format: ${scheduledAt}`);
       return res.status(400).json({ error: "Invalid scheduledAt date format" });
     }
 
@@ -155,7 +155,7 @@ router.post("/:id/schedule", async (req, res) => {
     console.log(`   Is Future: ${scheduledDate > new Date()}`);
 
     if (scheduledDate <= new Date() && pattern === "ONCE") {
-      console.log(`❌ ONCE pattern requires future date`);
+      console.log(`ONCE pattern requires future date`);
       return res
         .status(400)
         .json({ error: "Scheduled time must be in the future" });
@@ -171,13 +171,13 @@ router.post("/:id/schedule", async (req, res) => {
     };
 
     const post = await postService.schedulePost(req.params.id, scheduleConfig);
-    console.log(`✅ Post scheduled successfully`);
+    console.log(` Post scheduled successfully`);
     console.log(`   Updated Status: ${post.status}`);
     console.log(`   Job ID: ${post.jobId || "Not set yet"}`);
     res.json(post);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    console.error(`❌ Schedule error: ${message}`, req.body);
+    console.error(`Schedule error: ${message}`, req.body);
     res.status(400).json({ error: message });
   }
 });
@@ -207,14 +207,14 @@ router.post("/bulk-schedule", async (req, res) => {
 
     // Validate required fields
     if (!postIds || !Array.isArray(postIds) || postIds.length === 0) {
-      console.log(`❌ Invalid request: postIds required`);
+      console.log(`Invalid request: postIds required`);
       return res.status(400).json({
         error: "postIds array is required and must not be empty",
       });
     }
 
     if (!startTime || !endTime) {
-      console.log(`❌ Invalid request: missing time range`);
+      console.log(`Invalid request: missing time range`);
       return res.status(400).json({
         error: "startTime and endTime are required",
       });
@@ -225,7 +225,7 @@ router.post("/bulk-schedule", async (req, res) => {
     const endDate = new Date(endTime);
 
     if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-      console.log(`❌ Invalid date format`);
+      console.log(`Invalid date format`);
       return res.status(400).json({
         error: "Invalid date format for startTime or endTime",
       });
@@ -250,7 +250,7 @@ router.post("/bulk-schedule", async (req, res) => {
       }
     );
 
-    console.log(`✅ Bulk schedule completed successfully`);
+    console.log(` Bulk schedule completed successfully`);
     console.log(`   Scheduled ${results.length} posts`);
 
     // Return scheduled posts with timestamps
@@ -273,7 +273,7 @@ router.post("/bulk-schedule", async (req, res) => {
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    console.error(`❌ Bulk schedule error: ${message}`);
+    console.error(`Bulk schedule error: ${message}`);
     res.status(400).json({
       success: false,
       error: message,

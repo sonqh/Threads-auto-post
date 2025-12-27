@@ -2,146 +2,230 @@ import { Worker } from "bullmq";
 import dotenv from "dotenv";
 import { connectDatabase } from "./config/database.js";
 import { createRedisConnection } from "./config/redis.js";
-import { Post, PostStatus } from "./models/Post.js";
+import {
+  Post,
+  PostStatus,
+  CommentStatus,
+  generateContentHash,
+} from "./models/Post.js";
 import { ThreadsAdapter } from "./adapters/ThreadsAdapter.js";
 import { schedulerService } from "./services/SchedulerService.js";
+import { idempotencyService } from "./services/IdempotencyService.js";
 import { log } from "./config/logger.js";
 
 dotenv.config();
 
 const connection = createRedisConnection();
 const threadsAdapter = new ThreadsAdapter();
+const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 
 const worker = new Worker(
   "post-publishing",
   async (job) => {
-    const { postId } = job.data;
+    const { postId, commentOnlyRetry } = job.data;
 
-    log.info(`📤 Processing post ${postId}...`);
+    log.info(
+      `📤 Processing ${
+        commentOnlyRetry ? "comment retry for" : "post"
+      } ${postId}...`
+    );
 
     try {
-      const post = await Post.findById(postId);
+      // ===== Step 1: Pre-publish checks =====
+      const canPublishResult = await idempotencyService.canPublish(postId);
 
-      if (!post) {
-        throw new Error(`Post ${postId} not found`);
-      }
-
-      // Check if post is already published
-      if (post.status === PostStatus.PUBLISHED && post.threadsPostId) {
-        log.info(
-          `⏭️  Post ${postId} already published with ID ${post.threadsPostId}, skipping`
-        );
-        return {
-          success: true,
-          skipped: true,
-          platformPostId: post.threadsPostId,
-        };
-      }
-
-      // Check if post was published recently (within last 24 hours) to prevent duplicates
-      if (post.publishedAt) {
-        const hoursSincePublish =
-          (Date.now() - post.publishedAt.getTime()) / (1000 * 60 * 60);
-        if (hoursSincePublish < 24) {
-          log.warn(
-            `⚠️  Post ${postId} was already published ${hoursSincePublish.toFixed(
-              1
-            )}h ago, preventing duplicate`
-          );
-          post.status = PostStatus.PUBLISHED;
-          await post.save();
+      if (!canPublishResult.canPublish) {
+        // Check if this is a comment-only retry for an already published post
+        if (
+          canPublishResult.reason === "Post already published" &&
+          commentOnlyRetry
+        ) {
+          log.info(`📝 Comment-only retry for published post ${postId}`);
+          // Fall through to comment retry logic below
+        } else {
+          log.info(`⏭️  Skipping post ${postId}: ${canPublishResult.reason}`);
           return {
             success: true,
             skipped: true,
-            alreadyPublishedRecently: true,
-            platformPostId: post.threadsPostId,
+            reason: canPublishResult.reason,
           };
         }
       }
 
-      // Prepare media URLs
-      const mediaUrls = post.imageUrls.filter(
-        (url) => url && url.trim() !== ""
+      const post = canPublishResult.post || (await Post.findById(postId));
+      if (!post) {
+        throw new Error(`Post ${postId} not found`);
+      }
+
+      // ===== Step 2: Handle comment-only retry =====
+      if (
+        commentOnlyRetry &&
+        post.status === PostStatus.PUBLISHED &&
+        post.threadsPostId
+      ) {
+        return await handleCommentOnlyRetry(post, job);
+      }
+
+      // ===== Step 3: Duplicate detection =====
+      const duplicateCheck = await idempotencyService.checkForDuplicate(
+        post.content,
+        post.imageUrls,
+        post.videoUrl,
+        postId
       );
-      const videoUrl =
-        post.videoUrl && post.videoUrl.trim() !== ""
-          ? post.videoUrl
-          : undefined;
 
-      // Publish to Threads
-      const result = await threadsAdapter.publishPost({
-        content: post.content,
-        mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
-        videoUrl,
-        comment: post.comment, // Pass comment field
-      });
+      if (duplicateCheck.isDuplicate) {
+        log.warn(
+          `🚫 Duplicate detected for post ${postId}: ${duplicateCheck.message}`
+        );
+        post.status = PostStatus.FAILED;
+        post.error = duplicateCheck.message;
+        await post.save();
+        return {
+          success: false,
+          duplicate: true,
+          message: duplicateCheck.message,
+        };
+      }
 
-      if (result.success) {
-        post.status = PostStatus.PUBLISHED;
-        post.threadsPostId = result.platformPostId;
-        post.publishedAt = new Date();
-        post.error = undefined;
+      // ===== Step 4: Acquire execution lock =====
+      const lockResult = await idempotencyService.acquireExecutionLock(
+        postId,
+        WORKER_ID
+      );
+      if (!lockResult.acquired) {
+        log.warn(
+          `⏳ Cannot acquire lock for post ${postId}: ${lockResult.reason}`
+        );
+        // Don't fail - another worker is processing
+        return { success: false, locked: true, reason: lockResult.reason };
+      }
+
+      try {
+        // ===== Step 5: Update content hash and status =====
+        post.contentHash = generateContentHash(
+          post.content,
+          post.imageUrls,
+          post.videoUrl
+        );
+        post.status = PostStatus.PUBLISHING;
+        post.publishingProgress = {
+          status: "publishing",
+          startedAt: new Date(),
+          currentStep: "Publishing post...",
+        };
+
+        // Initialize comment status if post has a comment
+        if (post.comment && post.comment.trim()) {
+          post.commentStatus = CommentStatus.PENDING;
+        }
+
         await post.save();
 
-        log.success(
-          `✅ Post ${postId} published successfully: ${result.platformPostId}`
+        // ===== Step 6: Prepare media URLs =====
+        const mediaUrls = post.imageUrls.filter(
+          (url) => url && url.trim() !== ""
         );
-        return { success: true, platformPostId: result.platformPostId };
-      } else {
-        throw new Error(result.error || "Unknown error");
+        const videoUrl =
+          post.videoUrl && post.videoUrl.trim() !== ""
+            ? post.videoUrl
+            : undefined;
+
+        // ===== Step 7: Publish to Threads (post only, handle comment separately) =====
+        const result = await threadsAdapter.publishPost({
+          content: post.content,
+          mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
+          videoUrl,
+          comment: post.comment,
+          skipComment: false, // Let adapter handle comment, but track result separately
+        });
+
+        if (result.success) {
+          // ===== Step 8: Post succeeded - update status =====
+          post.status = PostStatus.PUBLISHED;
+          post.threadsPostId = result.platformPostId;
+          post.publishedAt = new Date();
+          post.error = undefined;
+
+          // Track comment status separately
+          if (result.commentResult) {
+            if (result.commentResult.success) {
+              post.commentStatus = CommentStatus.POSTED;
+              post.threadsCommentId = result.commentResult.commentId;
+              post.commentError = undefined;
+            } else {
+              // Comment failed but post succeeded - DON'T fail the whole job
+              post.commentStatus = CommentStatus.FAILED;
+              post.commentError = result.commentResult.error;
+              post.commentRetryCount = 1;
+              log.warn(
+                `⚠️ Post ${postId} published but comment failed: ${result.commentResult.error}`
+              );
+            }
+          } else if (!post.comment) {
+            post.commentStatus = CommentStatus.NONE;
+          }
+
+          post.publishingProgress = {
+            status: "published",
+            startedAt: post.publishingProgress?.startedAt,
+            completedAt: new Date(),
+            currentStep: "Published successfully",
+          };
+
+          await post.save();
+
+          log.success(
+            ` Post ${postId} published successfully: ${result.platformPostId}`
+          );
+          return {
+            success: true,
+            platformPostId: result.platformPostId,
+            commentStatus: post.commentStatus,
+          };
+        } else {
+          throw new Error(result.error || "Unknown error");
+        }
+      } finally {
+        // Always release lock
+        await idempotencyService.releaseExecutionLock(postId);
       }
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
-      log.error(`❌ Failed to publish post ${postId}:`, {
+      log.error(`Failed to publish post ${postId}:`, {
         error: errorMessage,
       });
 
-      // Rollback mechanism: revert post status
+      // Release lock if held
+      await idempotencyService.releaseExecutionLock(postId);
+
+      // Rollback mechanism (only for non-published posts)
       const post = await Post.findById(postId);
-      if (post) {
-        // IMPORTANT: Don't rollback if post was already successfully published
-        // This prevents duplicates when server restarts or jobs retry
-        if (post.status === PostStatus.PUBLISHED && post.threadsPostId) {
-          log.info(`ℹ️  Post ${postId} is already published, not rolling back`);
-          return; // Don't throw error, job succeeded
-        }
-
-        // Check if post was originally scheduled
+      if (post && post.status !== PostStatus.PUBLISHED) {
         const wasScheduled = post.scheduleConfig && post.scheduledAt;
+        const maxAttempts = job.opts.attempts || 3;
 
-        if (wasScheduled) {
-          // Only rollback if not already at max attempts
-          if (job.attemptsMade < (job.opts.attempts || 3)) {
-            // Rollback to SCHEDULED status for retry
-            post.status = PostStatus.SCHEDULED;
-            post.error = `Failed attempt ${job.attemptsMade}/${job.opts.attempts}: ${errorMessage}`;
-            log.warn(`🔄 Rolling back post ${postId} to SCHEDULED status`, {
-              originalSchedule: post.scheduledAt?.toISOString(),
-              attempt: job.attemptsMade,
-            });
-          } else {
-            // Max attempts reached, mark as failed
-            post.status = PostStatus.FAILED;
-            post.error = `All ${job.attemptsMade} attempts failed: ${errorMessage}`;
-            log.error(
-              `❌ Max attempts reached, marking post ${postId} as FAILED`
-            );
-          }
+        if (wasScheduled && job.attemptsMade < maxAttempts) {
+          // Rollback to SCHEDULED for retry
+          post.status = PostStatus.SCHEDULED;
+          post.error = `Failed attempt ${job.attemptsMade}/${maxAttempts}: ${errorMessage}`;
+          log.warn(`Rolling back post ${postId} to SCHEDULED status`, {
+            attempt: job.attemptsMade,
+            maxAttempts,
+          });
         } else {
-          // Mark as FAILED for manual posts
+          // Mark as FAILED (max retries reached or manual post)
           post.status = PostStatus.FAILED;
           post.error = errorMessage;
-          log.error(`❌ Marking post ${postId} as FAILED`);
+          log.error(`Marking post ${postId} as FAILED`);
         }
 
-        // Clear publishing progress
         post.publishingProgress = {
           status: "failed",
           startedAt: post.publishingProgress?.startedAt,
           completedAt: new Date(),
-          currentStep:
-            post.publishingProgress?.currentStep || "Publishing failed",
+          currentStep: "Publishing failed",
           error: errorMessage,
         };
 
@@ -161,8 +245,78 @@ const worker = new Worker(
   }
 );
 
+/**
+ * Handle comment-only retry for posts that published successfully but comment failed
+ */
+async function handleCommentOnlyRetry(post: any, job: any) {
+  const postId = post._id.toString();
+  log.info(`💬 Retrying comment for published post ${postId}`);
+
+  if (!post.threadsPostId) {
+    throw new Error("Cannot retry comment - post has no threadsPostId");
+  }
+
+  if (!post.comment) {
+    post.commentStatus = CommentStatus.NONE;
+    await post.save();
+    return { success: true, skipped: true, reason: "No comment to post" };
+  }
+
+  // Check retry limit
+  const maxRetries = parseInt(process.env.COMMENT_MAX_RETRIES || "3", 10);
+  if ((post.commentRetryCount || 0) >= maxRetries) {
+    log.error(`Comment retry limit reached for post ${postId}`);
+    return { success: false, reason: "Comment retry limit reached" };
+  }
+
+  post.commentStatus = CommentStatus.POSTING;
+  post.commentRetryCount = (post.commentRetryCount || 0) + 1;
+  await post.save();
+
+  try {
+    // Use the stored threadsPostId (origin post ID) for comment
+    const commentResult = await threadsAdapter.publishComment(
+      post.threadsPostId,
+      post.comment
+    );
+
+    if (commentResult.success) {
+      post.commentStatus = CommentStatus.POSTED;
+      post.threadsCommentId = commentResult.commentId;
+      post.commentError = undefined;
+      await post.save();
+
+      log.success(`💬 Comment retry succeeded for post ${postId}`);
+      return { success: true, commentId: commentResult.commentId };
+    } else {
+      post.commentStatus = CommentStatus.FAILED;
+      post.commentError = commentResult.error;
+      await post.save();
+
+      log.warn(
+        `⚠️ Comment retry failed for post ${postId}: ${commentResult.error}`
+      );
+      // Don't throw - we don't want to rollback the published post
+      return {
+        success: false,
+        commentFailed: true,
+        error: commentResult.error,
+      };
+    }
+  } catch (error: unknown) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
+    post.commentStatus = CommentStatus.FAILED;
+    post.commentError = errorMessage;
+    await post.save();
+
+    log.error(`Comment retry error for post ${postId}: ${errorMessage}`);
+    return { success: false, commentFailed: true, error: errorMessage };
+  }
+}
+
 worker.on("ready", () => {
-  log.success("🔄 Worker started and ready to process jobs");
+  log.success("Worker started and ready to process jobs");
 });
 
 worker.on("active", (job) => {
@@ -171,19 +325,19 @@ worker.on("active", (job) => {
 });
 
 worker.on("progress", (job, progress) => {
-  log.info(`📊 Job ${job.id} progress: ${progress}%`);
+  log.info(`Job ${job.id} progress: ${progress}%`);
 });
 
 worker.on("failed", (job, err) => {
   const postId = job?.data?.postId;
-  log.error(`❌ Job ${job?.id} FAILED for post ${postId}:`, {
+  log.error(`Job ${job?.id} FAILED for post ${postId}:`, {
     error: err.message,
   });
 });
 
 worker.on("completed", (job) => {
   const postId = job.data?.postId;
-  log.success(`✅ Job ${job.id} COMPLETED for post: ${postId}`);
+  log.success(` Job ${job.id} COMPLETED for post: ${postId}`);
 });
 
 const startWorker = async () => {

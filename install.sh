@@ -5,15 +5,15 @@ echo ""
 
 # Check for Node.js
 if ! command -v node &> /dev/null; then
-    echo "❌ Node.js is not installed. Please install Node.js 20+ first."
+    echo "Node.js is not installed. Please install Node.js 20+ first."
     exit 1
 fi
 
-echo "✅ Node.js found: $(node --version)"
+echo " Node.js found: $(node --version)"
 
 # Check for Podman
 if ! command -v podman &> /dev/null; then
-    echo "⚠️  Podman is not installed. Install it to run MongoDB and Redis containers."
+    echo "Podman is not installed. Install it to run MongoDB and Redis containers."
     echo "   On macOS: brew install podman"
     echo "   On Linux: See https://podman.io/getting-started/installation"
 fi
@@ -66,14 +66,14 @@ TZ=Asia/Ho_Chi_Minh
 MAX_FILE_SIZE=10485760
 UPLOAD_DIR=./uploads
 EOF
-    echo "✅ Created apps/backend/.env"
-    echo "⚠️  Please update THREADS_USER_ID and THREADS_ACCESS_TOKEN in apps/backend/.env"
+    echo " Created apps/backend/.env"
+    echo "Please update THREADS_USER_ID and THREADS_ACCESS_TOKEN in apps/backend/.env"
 else
-    echo "✅ apps/backend/.env already exists"
+    echo " apps/backend/.env already exists"
 fi
 
 echo ""
-echo "✅ Installation complete!"
+echo " Installation complete!"
 echo ""
 echo "Next steps:"
 echo "1. Update apps/backend/.env with your Threads API credentials"

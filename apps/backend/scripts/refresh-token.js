@@ -20,19 +20,19 @@ async function refreshAccessToken() {
   const refreshToken = process.env.THREADS_REFRESH_TOKEN;
 
   if (!clientSecret) {
-    console.error("❌ THREADS_CLIENT_SECRET not found in .env file");
+    console.error("THREADS_CLIENT_SECRET not found in .env file");
     process.exit(1);
   }
 
   if (!accessToken && !refreshToken) {
     console.error(
-      "❌ Neither THREADS_ACCESS_TOKEN nor THREADS_REFRESH_TOKEN found in .env file"
+      "Neither THREADS_ACCESS_TOKEN nor THREADS_REFRESH_TOKEN found in .env file"
     );
     process.exit(1);
   }
 
   try {
-    console.log("🔄 Attempting to refresh access token...");
+    console.log("Attempting to refresh access token...");
     console.log("Using refresh token:", refreshToken ? "Yes" : "No");
     console.log("Using access token:", accessToken ? "Yes" : "No");
 
@@ -46,7 +46,7 @@ async function refreshAccessToken() {
       }
     );
 
-    console.log("\n✅ Token refreshed successfully!");
+    console.log("\n Token refreshed successfully!");
     console.log("\n📋 New token details:");
     console.log("Access Token:", response.data.access_token);
     console.log("Token Type:", response.data.token_type);
@@ -66,7 +66,7 @@ async function refreshAccessToken() {
       console.log("THREADS_REFRESH_TOKEN=" + response.data.refresh_token);
     }
   } catch (error) {
-    console.error("\n❌ Failed to refresh token");
+    console.error("\nFailed to refresh token");
 
     if (error.response?.data) {
       console.error(
@@ -85,9 +85,7 @@ async function refreshAccessToken() {
           apiError.code === 190 ||
           (apiError.message && apiError.message.includes("expired"))
         ) {
-          console.error(
-            "\n⚠️  Your token has expired and cannot be refreshed."
-          );
+          console.error("\nYour token has expired and cannot be refreshed.");
           console.error("You need to get a new token by:");
           console.error("1. Go to https://developers.facebook.com/apps/");
           console.error("2. Select your app");

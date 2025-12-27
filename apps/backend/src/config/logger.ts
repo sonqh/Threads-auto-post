@@ -71,23 +71,23 @@ export const logger = winston.createLogger({
 // Helper functions with emojis
 export const log = {
   success: (message: string, meta?: any) => {
-    logger.info(chalk.green(`✅ ${message}`), meta);
+    logger.info(chalk.green(` ${message}`), meta);
   },
   error: (message: string, error?: any) => {
     if (error instanceof Error) {
-      logger.error(chalk.red(`❌ ${message}`), {
+      logger.error(chalk.red(`${message}`), {
         error: error.message,
         stack: error.stack,
       });
     } else {
-      logger.error(chalk.red(`❌ ${message}`), error);
+      logger.error(chalk.red(`${message}`), error);
     }
   },
   warn: (message: string, meta?: any) => {
-    logger.warn(chalk.yellow(`⚠️  ${message}`), meta);
+    logger.warn(chalk.yellow(`${message}`), meta);
   },
   info: (message: string, meta?: any) => {
-    logger.info(chalk.blue(`ℹ️  ${message}`), meta);
+    logger.info(chalk.blue(`${message}`), meta);
   },
   debug: (message: string, meta?: any) => {
     logger.debug(chalk.gray(`🔍 ${message}`), meta);
@@ -95,7 +95,7 @@ export const log = {
   api: (method: string, path: string, status?: number) => {
     const statusColor = status && status < 400 ? chalk.green : chalk.red;
     logger.info(
-      `${chalk.magenta("🌐 API")} ${chalk.bold(method)} ${path} ${
+      `${chalk.magenta("API")} ${chalk.bold(method)} ${path} ${
         status ? statusColor(`[${status}]`) : ""
       }`
     );

@@ -294,7 +294,7 @@ WORKER_CONCURRENCY=10
 The application validates configuration at startup. If validation fails, you'll see errors like:
 
 ```
-❌ Configuration validation errors:
+Configuration validation errors:
   - Invalid PORT: must be between 1 and 65535
   - MONGODB_URI is required
 ```
@@ -302,7 +302,7 @@ The application validates configuration at startup. If validation fails, you'll 
 If Threads credentials are missing, you'll see a warning:
 
 ```
-⚠️  THREADS_USER_ID and THREADS_ACCESS_TOKEN are not configured.
+THREADS_USER_ID and THREADS_ACCESS_TOKEN are not configured.
 Some features will not work without them.
 ```
 
@@ -413,10 +413,10 @@ console.log(appConfig.redis.host); // localhost
 
 This provides:
 
-- ✅ Type safety (TypeScript)
-- ✅ Validation at startup
-- ✅ Centralized configuration
-- ✅ Easy testing with test configs
+- Type safety (TypeScript)
+- Validation at startup
+- Centralized configuration
+- Easy testing with test configs
 
 ---
 
@@ -425,6 +425,6 @@ This provides:
 1. Update your Threads credentials in `apps/backend/.env`
 2. Start MongoDB and Redis: `podman-compose up -d`
 3. Start the backend: `npm run dev:backend`
-4. Verify in logs: "✅ MongoDB connected" and "✅ Redis connected"
+4. Verify in logs: " MongoDB connected" and " Redis connected"
 
 See [SETUP.md](../SETUP.md) for detailed setup instructions.

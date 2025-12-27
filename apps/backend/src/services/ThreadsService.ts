@@ -45,7 +45,7 @@ export class ThreadsService {
     // Check if token is about to expire
     if (now.getTime() >= tokenCache.expiresAt.getTime() - bufferTime) {
       if (!tokenCache.isRefreshing) {
-        console.log("🔄 Token expired or about to expire, refreshing...");
+        console.log("Token expired or about to expire, refreshing...");
         await this.refreshTokenAutomatically();
       } else {
         // Wait for ongoing refresh
@@ -74,7 +74,7 @@ export class ThreadsService {
         throw new Error("THREADS_CLIENT_SECRET not configured");
       }
 
-      console.log("🔄 Exchanging token for long-lived access token...");
+      console.log("Exchanging token for long-lived access token...");
 
       const response = await axios.post<TokenResponse>(this.tokenUrl, {
         grant_type: "th_exchange_token",
@@ -89,7 +89,7 @@ export class ThreadsService {
       tokenCache.accessToken = newToken;
       tokenCache.expiresAt = new Date(Date.now() + expiresIn * 1000);
 
-      console.log("✅ Token refreshed successfully!");
+      console.log(" Token refreshed successfully!");
       console.log(
         `📅 New token expires at: ${tokenCache.expiresAt.toLocaleString()}`
       );
@@ -100,7 +100,7 @@ export class ThreadsService {
 
       // TODO: When database is implemented, save the new token to DB
     } catch (error: any) {
-      console.error("❌ Failed to refresh token automatically");
+      console.error("Failed to refresh token automatically");
 
       if (error.response?.data) {
         const apiError = error.response.data.error;
@@ -111,7 +111,7 @@ export class ThreadsService {
 
         if (apiError?.code === 190 || apiError?.message?.includes("expired")) {
           console.error(
-            "\n⚠️  Token cannot be refreshed. You need to generate a new token."
+            "\nToken cannot be refreshed. You need to generate a new token."
           );
           console.error("Follow the instructions in TOKEN_REFRESH_GUIDE.md");
         }

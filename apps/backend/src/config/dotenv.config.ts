@@ -13,20 +13,18 @@ export default {
 
     if (result.error) {
       console.warn(
-        `⚠️  .env file not found at ${envPath}, trying current directory`
+        `.env file not found at ${envPath}, trying current directory`
       );
       // Fallback to current directory
       const fallbackResult = dotenv.config({ path: ".env" });
 
       if (fallbackResult.error) {
-        console.warn(
-          "⚠️  No .env file found, using environment variables only"
-        );
+        console.warn("No .env file found, using environment variables only");
       } else {
-        console.log("✅ Loaded configuration from current directory .env");
+        console.log(" Loaded configuration from current directory .env");
       }
     } else {
-      console.log("✅ Loaded configuration from backend .env");
+      console.log(" Loaded configuration from backend .env");
     }
   },
 };

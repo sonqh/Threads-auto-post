@@ -123,20 +123,20 @@ function validateConfig(config: AppConfig): void {
   // Warn if Threads credentials are not set (but don't fail)
   if (!config.threads.clientId || !config.threads.clientSecret) {
     console.warn(
-      "⚠️  THREADS_CLIENT_ID and THREADS_CLIENT_SECRET are not configured. " +
+      "THREADS_CLIENT_ID and THREADS_CLIENT_SECRET are not configured. " +
         "OAuth flow will not work. Set them in .env file."
     );
   }
 
   if (!config.threads.userId || !config.threads.accessToken) {
     console.warn(
-      "⚠️  THREADS_USER_ID and THREADS_ACCESS_TOKEN are not configured. " +
+      "THREADS_USER_ID and THREADS_ACCESS_TOKEN are not configured. " +
         "Some features will not work without them."
     );
   }
 
   if (errors.length > 0) {
-    console.error("❌ Configuration validation errors:");
+    console.error("Configuration validation errors:");
     errors.forEach((error) => console.error(`  - ${error}`));
     throw new Error("Invalid configuration");
   }

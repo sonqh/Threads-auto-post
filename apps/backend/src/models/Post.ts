@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from "mongoose";
+import crypto from "crypto";
 
 export enum PostType {
   TEXT = "TEXT",
@@ -13,6 +14,15 @@ export enum PostStatus {
   PUBLISHING = "PUBLISHING",
   PUBLISHED = "PUBLISHED",
   FAILED = "FAILED",
+}
+
+// Comment status enum for separate tracking
+export enum CommentStatus {
+  NONE = "NONE", // No comment to post
+  PENDING = "PENDING", // Comment waiting to be posted
+  POSTING = "POSTING", // Currently posting comment
+  POSTED = "POSTED", // Comment successfully posted
+  FAILED = "FAILED", // Comment failed (post still successful)
 }
 
 export enum SchedulePattern {
@@ -60,12 +70,43 @@ export interface IPost extends Document {
     error?: string;
   };
 
+  // Idempotency and duplication prevention
+  contentHash?: string; // Hash of content + media URLs for duplicate detection
+  idempotencyKey?: string; // Unique key for exactly-once publishing
+  executionLock?: {
+    lockedAt: Date;
+    lockedBy: string; // Worker ID or job ID
+    expiresAt: Date;
+  };
+
+  // Comment tracking (separate from post status)
+  commentStatus: CommentStatus;
+  commentError?: string;
+  commentRetryCount?: number;
+  threadsCommentId?: string; // Stored after successful comment
+
   // Error tracking
   error?: string;
 
   // Timestamps
   createdAt: Date;
   updatedAt: Date;
+}
+
+// Utility function to generate content hash for duplicate detection
+export function generateContentHash(
+  content: string,
+  imageUrls: string[] = [],
+  videoUrl?: string
+): string {
+  const normalizedContent = content.trim().toLowerCase();
+  const sortedImageUrls = [...imageUrls].sort().join("|");
+  const payload = `${normalizedContent}|${sortedImageUrls}|${videoUrl || ""}`;
+  return crypto
+    .createHash("sha256")
+    .update(payload)
+    .digest("hex")
+    .substring(0, 16);
 }
 
 const PostSchema = new Schema<IPost>(
@@ -113,6 +154,23 @@ const PostSchema = new Schema<IPost>(
       currentStep: String,
       error: String,
     },
+    // Idempotency fields
+    contentHash: { type: String, index: true },
+    idempotencyKey: { type: String, unique: true, sparse: true },
+    executionLock: {
+      lockedAt: Date,
+      lockedBy: String,
+      expiresAt: Date,
+    },
+    // Comment tracking
+    commentStatus: {
+      type: String,
+      enum: Object.values(CommentStatus),
+      default: CommentStatus.NONE,
+    },
+    commentError: { type: String },
+    commentRetryCount: { type: Number, default: 0 },
+    threadsCommentId: { type: String },
     error: { type: String },
   },
   {
@@ -123,5 +181,7 @@ const PostSchema = new Schema<IPost>(
 // Indexes
 PostSchema.index({ status: 1, scheduledAt: 1 });
 PostSchema.index({ threadsPostId: 1 });
+PostSchema.index({ contentHash: 1, publishedAt: 1 }); // For duplicate detection
+PostSchema.index({ "executionLock.expiresAt": 1 }); // For lock cleanup
 
 export const Post = mongoose.model<IPost>("Post", PostSchema);

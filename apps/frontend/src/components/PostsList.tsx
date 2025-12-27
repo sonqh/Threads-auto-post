@@ -152,7 +152,7 @@ export const PostsList: React.FC = () => {
           options
         );
 
-        console.log("✅ Bulk schedule response:", response);
+        console.log(" Bulk schedule response:", response);
         alert(`Successfully scheduled ${response.count} posts!`);
 
         setSelectedPosts(new Set());
@@ -216,13 +216,13 @@ export const PostsList: React.FC = () => {
         console.log(`   Config:`, config);
 
         await schedulePost(schedulingPostId, config);
-        console.log("✅ PostsList: Schedule API success");
+        console.log(" PostsList: Schedule API success");
 
         await fetchPosts(selectedStatus || undefined, page);
         setShowSchedulerModal(false);
         setSchedulingPostId(null);
       } catch (error) {
-        console.error("❌ PostsList: Failed to schedule:", error);
+        console.error("PostsList: Failed to schedule:", error);
         alert("Failed to schedule post. Please try again.");
       }
     },

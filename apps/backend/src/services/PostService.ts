@@ -113,7 +113,7 @@ export class PostService {
         currentStep: "Initializing...",
       };
       await post.save();
-      log.info(`📊 [${postId}] Publishing started`, { status: "publishing" });
+      log.info(`[${postId}] Publishing started`, { status: "publishing" });
 
       // Get Threads credential
       post.publishingProgress.currentStep = "Fetching credentials...";
@@ -170,7 +170,7 @@ export class PostService {
       };
       await post.save();
 
-      log.success(`📊 [${postId}] Publishing completed`, {
+      log.success(`[${postId}] Publishing completed`, {
         threadsPostId: result.platformPostId,
       });
 
@@ -212,7 +212,7 @@ export class PostService {
       };
       await post.save();
 
-      log.error(`📊 [${postId}] Publishing failed`, { error: errorMsg });
+      log.error(`[${postId}] Publishing failed`, { error: errorMsg });
 
       return {
         success: false,
@@ -238,7 +238,7 @@ export class PostService {
     console.log(`   Config:`, config);
 
     if (config.scheduledAt <= new Date()) {
-      console.log(`❌ Scheduled time is not in the future`);
+      console.log(`Scheduled time is not in the future`);
       throw new Error("Scheduled time must be in the future");
     }
 
@@ -246,14 +246,14 @@ export class PostService {
     console.log(`   Found post: "${post.content.substring(0, 40)}..."`);
 
     this.validatePostForPublishing(post);
-    console.log(`✅ Post validation passed`);
+    console.log(` Post validation passed`);
 
     post.status = PostStatus.SCHEDULED;
     post.scheduledAt = config.scheduledAt;
     post.scheduleConfig = config;
 
     const savedPost = await post.save();
-    console.log(`✅ Post saved with status: ${savedPost.status}`);
+    console.log(` Post saved with status: ${savedPost.status}`);
     console.log(`   Scheduled At: ${savedPost.scheduledAt?.toISOString()}`);
     console.log(`   Schedule Config:`, savedPost.scheduleConfig);
 
@@ -477,7 +477,7 @@ export class PostService {
     }
 
     log.success(
-      `✅ Bulk scheduled ${
+      ` Bulk scheduled ${
         results.length
       } posts from ${startTime.toISOString()} to ${endTime.toISOString()}`
     );

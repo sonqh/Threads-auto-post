@@ -104,7 +104,7 @@ export const log = {
     logger.info(chalk.cyan(`🧵 ${message}`), meta);
   },
   queue: (message: string, meta?: any) => {
-    logger.info(chalk.magenta(`📋 ${message}`), meta);
+    logger.info(chalk.magenta(`${message}`), meta);
   },
   schedule: (message: string, meta?: any) => {
     logger.info(chalk.blue(`⏰ ${message}`), meta);

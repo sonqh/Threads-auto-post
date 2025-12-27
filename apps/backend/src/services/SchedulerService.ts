@@ -163,7 +163,7 @@ export class SchedulerService {
       );
 
       if (upcomingPosts.length > 0) {
-        log.info(`\n⏳ Next scheduled posts:`);
+        log.info(`⏳ Next scheduled posts:`);
         upcomingPosts.forEach((p, i) => {
           const waitTime = p.scheduledAt
             ? Math.ceil((p.scheduledAt.getTime() - now.getTime()) / 1000)
@@ -183,13 +183,13 @@ export class SchedulerService {
         log.queue(
           `✓ No posts due right now. Scheduler will check again in 60 seconds.`
         );
-        log.info("=".repeat(60) + "\n");
+        log.info("=".repeat(60));
         return;
       }
 
       log.success(`\n🎯 PROCESSING ${scheduledPosts.length} post(s):`);
       log.success(
-        `📋 Found ${scheduledPosts.length} scheduled post(s) to process`
+        `Found ${scheduledPosts.length} scheduled post(s) to process`
       );
 
       for (const post of scheduledPosts) {
@@ -204,10 +204,10 @@ export class SchedulerService {
           const pattern = post.scheduleConfig?.pattern || "ONCE";
           const postPreview = post.content.substring(0, 40).replace(/\n/g, " ");
 
-          log.info(`\n   📌 Post: ${post._id}`);
-          log.info(`       Content: "${postPreview}..."`);
-          log.info(`       Pattern: ${pattern}`);
-          log.info(`       Scheduled: ${post.scheduledAt?.toLocaleString()}`);
+          log.info(`📌 Post: ${post._id}`);
+          log.info(`Content: "${postPreview}..."`);
+          log.info(`Pattern: ${pattern}`);
+          log.info(`Scheduled: ${post.scheduledAt?.toLocaleString()}`);
 
           if (isRecurring) {
             // For recurring posts, calculate next run time and keep post SCHEDULED
@@ -224,7 +224,7 @@ export class SchedulerService {
 
               // Add to queue for publishing
               const jobId = `scheduled-${post._id}-${Date.now()}`;
-              log.info(`       ⏳ Queuing... (jobId: ${jobId})`);
+              log.info(`⏳ Queuing... (jobId: ${jobId})`);
               await postQueue.add(
                 "publish-post",
                 { postId: post._id },
@@ -247,13 +247,11 @@ export class SchedulerService {
                 `        Queued! Next run: ${nextRunTime.toLocaleString()}`
               );
             } else {
-              log.info(
-                `       ⏭️  Not due yet. Next: ${nextRunTime.toLocaleString()}`
-              );
+              log.info(`Not due yet. Next: ${nextRunTime.toLocaleString()}`);
             }
           } else {
             // For one-time posts (ONCE), publish and mark as published
-            log.success(`        DUE (one-time)`);
+            log.success(`DUE (one-time)`);
             log.success(`⏰ Publishing one-time scheduled post ${post._id}`);
 
             // Generate idempotency key to prevent duplicate jobs
@@ -265,7 +263,7 @@ export class SchedulerService {
             // Check if post already has this idempotency key (job already created)
             if (post.idempotencyKey === idempotencyKey) {
               log.info(
-                `       ⏭️  Job already created with key ${idempotencyKey}, skipping`
+                `Job already created with key ${idempotencyKey}, skipping`
               );
               continue;
             }
@@ -308,9 +306,7 @@ export class SchedulerService {
             } catch (queueError: any) {
               // Handle duplicate job ID error gracefully
               if (queueError.message?.includes("already exists")) {
-                log.info(
-                  `       ⏭️  Job ${jobId} already exists in queue, skipping`
-                );
+                log.info(`Job ${jobId} already exists in queue, skipping`);
                 continue;
               }
               throw queueError;
@@ -326,10 +322,10 @@ export class SchedulerService {
               currentStep: "Queued for publishing...",
             };
             await post.save();
-            log.success(`        Queued!`);
+            log.success(`Queued!`);
           }
         } catch (error) {
-          log.error(`\n   ERROR Processing post ${post._id}:`, {
+          log.error(`ERROR Processing post ${post._id}:`, {
             error: error instanceof Error ? error.message : String(error),
           });
           log.error(`Failed to process scheduled post ${post._id}:`, {

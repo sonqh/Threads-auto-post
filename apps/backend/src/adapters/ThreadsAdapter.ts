@@ -142,7 +142,7 @@ export class ThreadsAdapter extends BasePlatformAdapter {
         );
         log.debug(` Image container created: ${containerId}`);
       } else {
-        log.debug("📝 Creating text-only container");
+        log.debug("Creating text-only container");
         // Text-only post
         containerId = await this.createTextContainer(data.content);
         log.debug(` Text container created: ${containerId}`);
@@ -161,7 +161,7 @@ export class ThreadsAdapter extends BasePlatformAdapter {
 
         if (!commentResult.success) {
           log.warn(
-            `⚠️ Comment failed but post succeeded. Comment error: ${commentResult.error}`
+            `Comment failed but post succeeded. Comment error: ${commentResult.error}`
           );
           // Don't throw - post is still successful
         }

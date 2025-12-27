@@ -201,7 +201,7 @@ export const BulkSchedulerModal: React.FC<BulkSchedulerModalProps> = ({
                 </div>
                 {duration.totalMinutes < minRequired && (
                   <p className="text-xs text-red-600 dark:text-red-400 mt-2">
-                    ⚠️ Time range is too short! Need at least {minRequired}{" "}
+                    Time range is too short! Need at least {minRequired}{" "}
                     minutes.
                   </p>
                 )}

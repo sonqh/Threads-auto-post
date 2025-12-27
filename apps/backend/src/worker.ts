@@ -40,10 +40,10 @@ const worker = new Worker(
           canPublishResult.reason === "Post already published" &&
           commentOnlyRetry
         ) {
-          log.info(`📝 Comment-only retry for published post ${postId}`);
+          log.info(`Comment-only retry for published post ${postId}`);
           // Fall through to comment retry logic below
         } else {
-          log.info(`⏭️  Skipping post ${postId}: ${canPublishResult.reason}`);
+          log.info(`Skipping post ${postId}: ${canPublishResult.reason}`);
           return {
             success: true,
             skipped: true,
@@ -78,9 +78,15 @@ const worker = new Worker(
         log.warn(
           `🚫 Duplicate detected for post ${postId}: ${duplicateCheck.message}`
         );
-        post.status = PostStatus.FAILED;
-        post.error = duplicateCheck.message;
-        await post.save();
+
+        // Refresh post for latest version
+        const freshPost = await Post.findById(postId);
+        if (freshPost) {
+          freshPost.status = PostStatus.FAILED;
+          freshPost.error = duplicateCheck.message;
+          await freshPost.save();
+        }
+
         return {
           success: false,
           duplicate: true,
@@ -102,6 +108,20 @@ const worker = new Worker(
       }
 
       try {
+        // Refresh post after lock acquisition to get latest version
+        let post = await Post.findById(postId);
+        if (!post) {
+          throw new Error(`Post ${postId} not found after lock`);
+        }
+
+        // Ensure new fields have defaults if they don't exist (for existing documents)
+        if (!post.commentStatus) {
+          post.commentStatus = CommentStatus.NONE;
+        }
+        if (!post.commentRetryCount) {
+          post.commentRetryCount = 0;
+        }
+
         // ===== Step 5: Update content hash and status =====
         post.contentHash = generateContentHash(
           post.content,
@@ -159,7 +179,7 @@ const worker = new Worker(
               post.commentError = result.commentResult.error;
               post.commentRetryCount = 1;
               log.warn(
-                `⚠️ Post ${postId} published but comment failed: ${result.commentResult.error}`
+                `Post ${postId} published but comment failed: ${result.commentResult.error}`
               );
             }
           } else if (!post.comment) {
@@ -294,7 +314,7 @@ async function handleCommentOnlyRetry(post: any, job: any) {
       await post.save();
 
       log.warn(
-        `⚠️ Comment retry failed for post ${postId}: ${commentResult.error}`
+        `Comment retry failed for post ${postId}: ${commentResult.error}`
       );
       // Don't throw - we don't want to rollback the published post
       return {

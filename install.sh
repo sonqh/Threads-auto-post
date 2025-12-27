@@ -40,7 +40,7 @@ cd ../..
 # Create backend .env file if it doesn't exist
 if [ ! -f apps/backend/.env ]; then
     echo ""
-    echo "📝 Creating backend .env file..."
+    echo "Creating backend .env file..."
     cat > apps/backend/.env << 'EOF'
 # Server Configuration
 PORT=3001

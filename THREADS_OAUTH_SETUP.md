@@ -32,7 +32,7 @@ Quick reference for setting up Threads OAuth authentication.
 
 1. Go to your app's **Settings > Basic**
 2. Copy **App ID** → save as `THREADS_CLIENT_ID`
-3. Copy **App Secret** → save as `THREADS_CLIENT_SECRET` (⚠️ keep private)
+3. Copy **App Secret** → save as `THREADS_CLIENT_SECRET` (keep private)
 4. You now have OAuth credentials
 
 ## Step 4: Set Redirect URI

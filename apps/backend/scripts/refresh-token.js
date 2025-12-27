@@ -46,8 +46,8 @@ async function refreshAccessToken() {
       }
     );
 
-    console.log("\n Token refreshed successfully!");
-    console.log("\n📋 New token details:");
+    console.log("Token refreshed successfully!");
+    console.log("New token details:");
     console.log("Access Token:", response.data.access_token);
     console.log("Token Type:", response.data.token_type);
     console.log("Expires In:", response.data.expires_in, "seconds");
@@ -59,14 +59,14 @@ async function refreshAccessToken() {
       console.log("Expires At:", expirationDate.toLocaleString());
     }
 
-    console.log("\n📝 Update your .env file with:");
+    console.log("Update your .env file with:");
     console.log("THREADS_ACCESS_TOKEN=" + response.data.access_token);
 
     if (response.data.refresh_token) {
       console.log("THREADS_REFRESH_TOKEN=" + response.data.refresh_token);
     }
   } catch (error) {
-    console.error("\nFailed to refresh token");
+    console.error("Failed to refresh token");
 
     if (error.response?.data) {
       console.error(
@@ -77,7 +77,7 @@ async function refreshAccessToken() {
       if (error.response.data.error) {
         const apiError = error.response.data.error;
         console.error(
-          "\nError message:",
+          "Error message:",
           apiError.message || apiError.error_user_msg
         );
 
@@ -85,7 +85,7 @@ async function refreshAccessToken() {
           apiError.code === 190 ||
           (apiError.message && apiError.message.includes("expired"))
         ) {
-          console.error("\nYour token has expired and cannot be refreshed.");
+          console.error("Your token has expired and cannot be refreshed.");
           console.error("You need to get a new token by:");
           console.error("1. Go to https://developers.facebook.com/apps/");
           console.error("2. Select your app");

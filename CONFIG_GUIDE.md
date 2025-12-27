@@ -116,7 +116,7 @@ The Threads API uses **OAuth 2.0 authentication**. You need two sets of credenti
 4. Go to **Settings > Basic**
 5. Copy:
    - **App ID** → set as `THREADS_CLIENT_ID`
-   - **App Secret** → set as `THREADS_CLIENT_SECRET` ⚠️ **Keep this private!**
+   - **App Secret** → set as `THREADS_CLIENT_SECRET` **Keep this private!**
 6. Set **Valid OAuth Redirect URIs** in app settings to: `http://localhost:3001/api/credentials/callback`
 
 **How to get access credentials:**

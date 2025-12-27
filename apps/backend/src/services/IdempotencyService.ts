@@ -80,7 +80,7 @@ export class IdempotencyService {
       const publishedAt =
         existingPost.publishedAt || existingPost.publishingProgress?.startedAt;
       log.warn(
-        `⚠️ Duplicate detected! Existing post ${
+        `Duplicate detected! Existing post ${
           existingPost._id
         } published at ${publishedAt?.toISOString()}`
       );
@@ -138,7 +138,7 @@ export class IdempotencyService {
     const post = await Post.findById(postId);
     if (post?.executionLock) {
       log.warn(
-        `⚠️ Post ${postId} is locked by ${post.executionLock.lockedBy} until ${post.executionLock.expiresAt}`
+        `Post ${postId} is locked by ${post.executionLock.lockedBy} until ${post.executionLock.expiresAt}`
       );
       return {
         acquired: false,
@@ -237,9 +237,7 @@ export class IdempotencyService {
         post.videoUrl
       );
       await post.save();
-      log.debug(
-        `📝 Updated content hash for post ${postId}: ${post.contentHash}`
-      );
+      log.debug(`Updated content hash for post ${postId}: ${post.contentHash}`);
     }
   }
 

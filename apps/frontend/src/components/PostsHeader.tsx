@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Calendar } from "lucide-react";
 import { Button } from "./ui/button";
 import { SchedulerModal } from "./SchedulerModal";
 import { type ScheduleConfig } from "@/types";
@@ -8,6 +9,7 @@ interface PostsHeaderProps {
   onSelectAll: (selected: boolean) => void;
   onBulkDelete: (ids: string[]) => void;
   onBulkSchedule: (ids: string[], config: ScheduleConfig) => void;
+  onBulkScheduleRandom?: () => void; // New: for random distribution scheduling
   selectedIds: string[];
 }
 
@@ -16,6 +18,7 @@ export const PostsHeader = ({
   onSelectAll,
   onBulkDelete,
   onBulkSchedule,
+  onBulkScheduleRandom,
   selectedIds,
 }: PostsHeaderProps) => {
   const [showSchedulerModal, setShowSchedulerModal] = useState(false);
@@ -42,12 +45,23 @@ export const PostsHeader = ({
 
         {selectedCount > 0 && (
           <div className="flex gap-2">
+            {onBulkScheduleRandom && (
+              <Button
+                size="sm"
+                variant="default"
+                onClick={onBulkScheduleRandom}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <Calendar className="h-4 w-4 mr-2" />
+                Bulk Schedule ({selectedCount})
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
               onClick={() => setShowSchedulerModal(true)}
             >
-              Schedule {selectedCount}
+              Schedule (Same Time)
             </Button>
             <Button
               size="sm"

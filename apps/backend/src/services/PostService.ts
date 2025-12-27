@@ -323,6 +323,169 @@ export class PostService {
   }
 
   /**
+   * Bulk schedule multiple posts within a time range with random distribution
+   *
+   * Algorithm:
+   * 1. Calculate total time window (endTime - startTime) in milliseconds
+   * 2. Generate N random timestamps within this window
+   * 3. Sort timestamps to ensure sequential posting
+   * 4. Optionally shuffle post order for natural behavior
+   * 5. Assign each post a unique timestamp with no duplicates
+   *
+   * @param postIds - Array of post IDs to schedule
+   * @param startTime - Start of time range
+   * @param endTime - End of time range
+   * @param options - Additional options (randomize order, seed for deterministic behavior)
+   * @returns Array of scheduled posts with their timestamps
+   */
+  async bulkScheduleWithRandomDistribution(
+    postIds: string[],
+    startTime: Date,
+    endTime: Date,
+    options?: {
+      randomizeOrder?: boolean;
+      seed?: number;
+    }
+  ): Promise<
+    Array<{
+      post: IPost;
+      scheduledAt: Date;
+    }>
+  > {
+    // Validate inputs
+    if (!postIds || postIds.length === 0) {
+      throw new Error("At least one post ID is required");
+    }
+
+    if (startTime >= endTime) {
+      throw new Error("Start time must be before end time");
+    }
+
+    if (startTime < new Date()) {
+      throw new Error("Start time must be in the future");
+    }
+
+    const postCount = postIds.length;
+    const totalDuration = endTime.getTime() - startTime.getTime();
+
+    // Ensure we have enough time between posts (minimum 5 minutes)
+    const minGapMs = 300000; // 5 minutes
+    const requiredMinTime = postCount * minGapMs;
+    if (totalDuration < requiredMinTime) {
+      throw new Error(
+        `Time range too short. Need at least ${Math.ceil(
+          requiredMinTime / 60000
+        )} minutes for ${postCount} posts with 5-minute minimum gaps`
+      );
+    }
+
+    // Create seeded random number generator for deterministic results
+    const seededRandom = (seed: number) => {
+      let state = seed;
+      return () => {
+        state = (state * 1664525 + 1013904223) % 4294967296;
+        return state / 4294967296;
+      };
+    };
+    const rng = options?.seed
+      ? seededRandom(options.seed)
+      : () => Math.random();
+
+    // Generate random timestamps within the range
+    const timestamps: number[] = [];
+    const startMs = startTime.getTime();
+    const endMs = endTime.getTime();
+
+    // Generate N unique random positions
+    for (let i = 0; i < postCount; i++) {
+      let timestamp: number;
+      let attempts = 0;
+      const maxAttempts = 100;
+
+      // Keep generating until we get a unique timestamp (no collision)
+      do {
+        // Use random distribution across the entire time range
+        timestamp = startMs + Math.floor(rng() * totalDuration);
+        attempts++;
+
+        // Fallback: if too many attempts, use deterministic spacing
+        if (attempts >= maxAttempts) {
+          const segment = totalDuration / postCount;
+          timestamp =
+            startMs +
+            Math.floor(segment * i) +
+            Math.floor(rng() * segment * 0.8);
+          break;
+        }
+      } while (
+        timestamps.some((t) => Math.abs(t - timestamp) < minGapMs) ||
+        timestamp > endMs
+      );
+
+      timestamps.push(timestamp);
+    }
+
+    // Sort timestamps chronologically
+    timestamps.sort((a, b) => a - b);
+
+    // Ensure no timestamp exceeds endTime
+    for (let i = 0; i < timestamps.length; i++) {
+      if (timestamps[i] > endMs) {
+        timestamps[i] = endMs - (timestamps.length - i) * minGapMs;
+      }
+    }
+
+    // Optionally randomize post order
+    let orderedPostIds = [...postIds];
+    if (options?.randomizeOrder) {
+      // Fisher-Yates shuffle with seeded random
+      for (let i = orderedPostIds.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [orderedPostIds[i], orderedPostIds[j]] = [
+          orderedPostIds[j],
+          orderedPostIds[i],
+        ];
+      }
+    }
+
+    // Schedule each post
+    const results: Array<{ post: IPost; scheduledAt: Date }> = [];
+    for (let i = 0; i < orderedPostIds.length; i++) {
+      const postId = orderedPostIds[i];
+      const scheduledAt = new Date(timestamps[i]);
+
+      const scheduleConfig: ScheduleConfig = {
+        pattern: SchedulePattern.ONCE,
+        scheduledAt,
+        time: `${scheduledAt
+          .getHours()
+          .toString()
+          .padStart(2, "0")}:${scheduledAt
+          .getMinutes()
+          .toString()
+          .padStart(2, "0")}`,
+      };
+
+      const post = await this.schedulePost(postId, scheduleConfig);
+      results.push({ post, scheduledAt });
+
+      log.info(
+        `📅 Scheduled post ${
+          i + 1
+        }/${postCount}: ${postId} at ${scheduledAt.toISOString()}`
+      );
+    }
+
+    log.success(
+      `✅ Bulk scheduled ${
+        results.length
+      } posts from ${startTime.toISOString()} to ${endTime.toISOString()}`
+    );
+
+    return results;
+  }
+
+  /**
    * Reset post to draft (for retry after failure)
    */
   async resetToDraft(postId: string): Promise<IPost> {

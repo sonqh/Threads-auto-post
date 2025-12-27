@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { PostService } from "../services/PostService.js";
 import { monitoringService } from "../services/MonitoringService.js";
-import { Post } from "../models/Post.js";
+import { Post, PostStatus } from "../models/Post.js";
 import type { ScheduleConfig, IPost } from "../models/Post.js";
 
 const router = Router();
@@ -193,6 +193,94 @@ router.post("/:id/cancel", async (req, res) => {
   }
 });
 
+// Bulk schedule posts with random distribution
+// Body: { postIds: string[], startTime: string, endTime: string, randomizeOrder?: boolean, seed?: number }
+router.post("/bulk-schedule", async (req, res) => {
+  try {
+    const { postIds, startTime, endTime, randomizeOrder, seed } = req.body;
+
+    console.log(`\n📅 BULK SCHEDULE REQUEST RECEIVED:`);
+    console.log(`   Post Count: ${postIds?.length || 0}`);
+    console.log(`   Start Time: ${startTime}`);
+    console.log(`   End Time: ${endTime}`);
+    console.log(`   Randomize Order: ${randomizeOrder || false}`);
+
+    // Validate required fields
+    if (!postIds || !Array.isArray(postIds) || postIds.length === 0) {
+      console.log(`❌ Invalid request: postIds required`);
+      return res.status(400).json({
+        error: "postIds array is required and must not be empty",
+      });
+    }
+
+    if (!startTime || !endTime) {
+      console.log(`❌ Invalid request: missing time range`);
+      return res.status(400).json({
+        error: "startTime and endTime are required",
+      });
+    }
+
+    // Parse dates
+    const startDate = new Date(startTime);
+    const endDate = new Date(endTime);
+
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      console.log(`❌ Invalid date format`);
+      return res.status(400).json({
+        error: "Invalid date format for startTime or endTime",
+      });
+    }
+
+    console.log(`   Parsed Start: ${startDate.toISOString()}`);
+    console.log(`   Parsed End: ${endDate.toISOString()}`);
+    console.log(
+      `   Duration: ${Math.round(
+        (endDate.getTime() - startDate.getTime()) / 60000
+      )} minutes`
+    );
+
+    // Call the bulk scheduling service
+    const results = await postService.bulkScheduleWithRandomDistribution(
+      postIds,
+      startDate,
+      endDate,
+      {
+        randomizeOrder,
+        seed,
+      }
+    );
+
+    console.log(`✅ Bulk schedule completed successfully`);
+    console.log(`   Scheduled ${results.length} posts`);
+
+    // Return scheduled posts with timestamps
+    res.json({
+      success: true,
+      count: results.length,
+      posts: results.map((r) => ({
+        postId: r.post._id,
+        content: r.post.content.substring(0, 50) + "...",
+        scheduledAt: r.scheduledAt.toISOString(),
+        status: r.post.status,
+      })),
+      timeRange: {
+        start: startDate.toISOString(),
+        end: endDate.toISOString(),
+        durationMinutes: Math.round(
+          (endDate.getTime() - startDate.getTime()) / 60000
+        ),
+      },
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error(`❌ Bulk schedule error: ${message}`);
+    res.status(400).json({
+      success: false,
+      error: message,
+    });
+  }
+});
+
 // ============================================
 // Job Monitoring Endpoints
 // ============================================
@@ -312,6 +400,52 @@ router.get("/debug/scheduler-status", async (req, res) => {
         "✓ isDue = false: Post is waiting for its scheduled time",
         "✓ Check timeDiffFormatted to see how long until it runs",
       ],
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    res.status(500).json({ error: message });
+  }
+});
+
+// Retry failed post
+router.post("/:id/retry", async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+
+    if (!post) {
+      return res.status(404).json({ error: "Post not found" });
+    }
+
+    // Reset post status based on whether it was originally scheduled
+    const wasScheduled = post.scheduleConfig && post.scheduledAt;
+
+    if (wasScheduled) {
+      // Revert to scheduled status
+      post.status = PostStatus.SCHEDULED;
+      post.error = undefined;
+      post.publishingProgress = {
+        status: "pending",
+        currentStep: "Ready to retry",
+      };
+    } else {
+      // For manual posts, change from FAILED to DRAFT so user can edit and republish
+      post.status = PostStatus.DRAFT;
+      post.error = undefined;
+      post.publishingProgress = {
+        status: "pending",
+        currentStep: "Reset to draft - edit and publish manually",
+      };
+    }
+
+    await post.save();
+
+    // If it was scheduled, the scheduler will pick it up automatically
+    res.json({
+      success: true,
+      message: wasScheduled
+        ? "Post reset to SCHEDULED - will retry automatically"
+        : "Post reset to DRAFT - edit and publish manually",
+      post,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";

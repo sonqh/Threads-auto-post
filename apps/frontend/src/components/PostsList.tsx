@@ -6,6 +6,7 @@ import { PostsHeader } from "./PostsHeader";
 import { PostsTable } from "./PostsTable";
 import { EditPostModal } from "./EditPostModal";
 import { SchedulerModal } from "./SchedulerModal";
+import { BulkSchedulerModal } from "./BulkSchedulerModal";
 import { Pagination } from "./Pagination";
 import { Button } from "./ui/button";
 import {
@@ -15,20 +16,38 @@ import {
   CardHeader,
   CardTitle,
 } from "./ui/card";
-import { PostStatus, type Post, type PostStatusType, type ScheduleConfig } from "@/types";
+import {
+  PostStatus,
+  type Post,
+  type PostStatusType,
+  type ScheduleConfig,
+} from "@/types";
 import { LinksModal } from "./LinksModal";
+import { postsApi } from "../lib/api";
 
 const STATUS_FILTERS = ["" as const, ...Object.values(PostStatus)] as const;
 
 export const PostsList: React.FC = () => {
-  const { posts, loading, total, page, limit, setLimit, fetchPosts, deletePost, bulkDelete, updatePost } = usePostList();
-  const { publish, schedulePost, cancelSchedule, publishing } = useThreadsPublish();
+  const {
+    posts,
+    loading,
+    total,
+    page,
+    limit,
+    setLimit,
+    fetchPosts,
+    deletePost,
+    bulkDelete,
+    updatePost,
+  } = usePostList();
+  const { publish, schedulePost, cancelSchedule, publishing } =
+    useThreadsPublish();
 
   // UI State
   const [selectedStatus, setSelectedStatus] = useState<PostStatusType | "">("");
   const [selectedPosts, setSelectedPosts] = useState<Set<string>>(new Set());
   const [pageSize, setPageSize] = useState(limit);
-  
+
   // Modal State
   const [showLinksModal, setShowLinksModal] = useState(false);
   const [linksModalPost, setLinksModalPost] = useState<Post | null>(null);
@@ -36,6 +55,7 @@ export const PostsList: React.FC = () => {
   const [editingPost, setEditingPost] = useState<Post | null>(null);
   const [showSchedulerModal, setShowSchedulerModal] = useState(false);
   const [schedulingPostId, setSchedulingPostId] = useState<string | null>(null);
+  const [showBulkSchedulerModal, setShowBulkSchedulerModal] = useState(false);
 
   // Calculate pagination
   const totalPages = Math.ceil(total / pageSize);
@@ -66,70 +86,121 @@ export const PostsList: React.FC = () => {
     });
   }, []);
 
-  const handleSelectAll = useCallback((selected: boolean) => {
-    if (selected) {
-      setSelectedPosts(new Set(posts.map((p) => p._id)));
-    } else {
-      setSelectedPosts(new Set());
-    }
-  }, [posts]);
+  const handleSelectAll = useCallback(
+    (selected: boolean) => {
+      if (selected) {
+        setSelectedPosts(new Set(posts.map((p) => p._id)));
+      } else {
+        setSelectedPosts(new Set());
+      }
+    },
+    [posts]
+  );
 
   // Handlers - Bulk Actions
-  const handleBulkDelete = useCallback(async (ids: string[]) => {
-    if (!confirm(`Are you sure you want to delete ${ids.length} post(s)?`)) {
-      return;
-    }
-    
-    try {
-      await bulkDelete(ids);
-      setSelectedPosts(new Set());
-      await fetchPosts(selectedStatus || undefined, page);
-    } catch (error) {
-      console.error("Failed to delete posts:", error);
-      alert("Failed to delete posts. Please try again.");
-    }
-  }, [bulkDelete, fetchPosts, selectedStatus, page]);
-
-  const handleBulkSchedule = useCallback(async (ids: string[], config: ScheduleConfig) => {
-    try {
-      for (const id of ids) {
-        await schedulePost(id, config);
+  const handleBulkDelete = useCallback(
+    async (ids: string[]) => {
+      if (!confirm(`Are you sure you want to delete ${ids.length} post(s)?`)) {
+        return;
       }
-      setSelectedPosts(new Set());
-      await fetchPosts(selectedStatus || undefined, page);
-    } catch (error) {
-      console.error("Failed to schedule posts:", error);
-      alert("Failed to schedule posts. Please try again.");
-    }
-  }, [schedulePost, fetchPosts, selectedStatus, page]);
+
+      try {
+        await bulkDelete(ids);
+        setSelectedPosts(new Set());
+        await fetchPosts(selectedStatus || undefined, page);
+      } catch (error) {
+        console.error("Failed to delete posts:", error);
+        alert("Failed to delete posts. Please try again.");
+      }
+    },
+    [bulkDelete, fetchPosts, selectedStatus, page]
+  );
+
+  const handleBulkSchedule = useCallback(
+    async (ids: string[], config: ScheduleConfig) => {
+      try {
+        for (const id of ids) {
+          await schedulePost(id, config);
+        }
+        setSelectedPosts(new Set());
+        await fetchPosts(selectedStatus || undefined, page);
+      } catch (error) {
+        console.error("Failed to schedule posts:", error);
+        alert("Failed to schedule posts. Please try again.");
+      }
+    },
+    [schedulePost, fetchPosts, selectedStatus, page]
+  );
+
+  // Handler for new bulk schedule with random distribution
+  const handleBulkScheduleWithRandomDistribution = useCallback(
+    async (
+      startTime: string,
+      endTime: string,
+      options: { randomizeOrder: boolean }
+    ) => {
+      if (selectedPosts.size === 0) {
+        alert("No posts selected");
+        return;
+      }
+
+      try {
+        const response = await postsApi.bulkSchedule(
+          Array.from(selectedPosts),
+          startTime,
+          endTime,
+          options
+        );
+
+        console.log("✅ Bulk schedule response:", response);
+        alert(`Successfully scheduled ${response.count} posts!`);
+
+        setSelectedPosts(new Set());
+        setShowBulkSchedulerModal(false);
+        await fetchPosts(selectedStatus || undefined, page);
+      } catch (error) {
+        console.error("Failed to bulk schedule posts:", error);
+        const errorMsg =
+          error instanceof Error ? error.message : "Failed to schedule posts";
+        alert(`Error: ${errorMsg}`);
+      }
+    },
+    [selectedPosts, fetchPosts, selectedStatus, page]
+  );
 
   // Handlers - Single Post Actions
-  const handleDeletePost = useCallback(async (id: string) => {
-    if (!confirm("Are you sure you want to delete this post?")) return;
-    
-    try {
-      await deletePost(id);
-      await fetchPosts(selectedStatus || undefined, page);
-    } catch (error) {
-      console.error("Failed to delete post:", error);
-      alert("Failed to delete post. Please try again.");
-    }
-  }, [deletePost, fetchPosts, selectedStatus, page]);
+  const handleDeletePost = useCallback(
+    async (id: string) => {
+      if (!confirm("Are you sure you want to delete this post?")) return;
 
-  const handlePublish = useCallback(async (postId: string) => {
-    const post = posts.find((p) => p._id === postId);
-    if (!post) return;
+      try {
+        await deletePost(id);
+        await fetchPosts(selectedStatus || undefined, page);
+      } catch (error) {
+        console.error("Failed to delete post:", error);
+        alert("Failed to delete post. Please try again.");
+      }
+    },
+    [deletePost, fetchPosts, selectedStatus, page]
+  );
 
-    if (!confirm("Publish this post to Threads now?")) return;
+  const handlePublish = useCallback(
+    async (postId: string) => {
+      const post = posts.find((p) => p._id === postId);
+      if (!post) return;
 
-    try {
-      await publish(postId, post);
-      await fetchPosts(selectedStatus || undefined, page);
-    } catch (error) {
-      console.error("Failed to publish:", error);
-      alert("Failed to publish post. Please try again.");
-    }
-  }, [posts, publish, fetchPosts, selectedStatus, page]);
+      if (!confirm("Publish this post to Threads now?")) return;
+
+      try {
+        await publish(postId, post);
+        await fetchPosts(selectedStatus || undefined, page);
+      } catch (error) {
+        console.error("Failed to publish:", error);
+        alert("Failed to publish post. Please try again.");
+      }
+    },
+    [posts, publish, fetchPosts, selectedStatus, page]
+  );
 
   const handleSchedule = useCallback((postId: string) => {
     setSchedulingPostId(postId);
@@ -143,10 +214,10 @@ export const PostsList: React.FC = () => {
         console.log("🎯 PostsList: Schedule submitted");
         console.log(`   Post ID: ${schedulingPostId}`);
         console.log(`   Config:`, config);
-        
+
         await schedulePost(schedulingPostId, config);
         console.log("✅ PostsList: Schedule API success");
-        
+
         await fetchPosts(selectedStatus || undefined, page);
         setShowSchedulerModal(false);
         setSchedulingPostId(null);
@@ -158,15 +229,18 @@ export const PostsList: React.FC = () => {
     [schedulingPostId, schedulePost, fetchPosts, selectedStatus, page]
   );
 
-  const handleCancel = useCallback(async (postId: string) => {
-    try {
-      await cancelSchedule(postId);
-      await fetchPosts(selectedStatus || undefined, page);
-    } catch (error) {
-      console.error("Failed to cancel schedule:", error);
-      alert("Failed to cancel schedule. Please try again.");
-    }
-  }, [cancelSchedule, fetchPosts, selectedStatus, page]);
+  const handleCancel = useCallback(
+    async (postId: string) => {
+      try {
+        await cancelSchedule(postId);
+        await fetchPosts(selectedStatus || undefined, page);
+      } catch (error) {
+        console.error("Failed to cancel schedule:", error);
+        alert("Failed to cancel schedule. Please try again.");
+      }
+    },
+    [cancelSchedule, fetchPosts, selectedStatus, page]
+  );
 
   // Handlers - Edit Modal
   const handleEditPost = useCallback((post: Post) => {
@@ -174,14 +248,17 @@ export const PostsList: React.FC = () => {
     setShowEditModal(true);
   }, []);
 
-  const handleSavePost = useCallback(async (updatedPost: Partial<Post>) => {
-    if (!editingPost) return;
+  const handleSavePost = useCallback(
+    async (updatedPost: Partial<Post>) => {
+      if (!editingPost) return;
 
-    await updatePost(editingPost._id, updatedPost);
-    setShowEditModal(false);
-    setEditingPost(null);
-    await fetchPosts(selectedStatus || undefined, page);
-  }, [editingPost, updatePost, fetchPosts, selectedStatus, page]);
+      await updatePost(editingPost._id, updatedPost);
+      setShowEditModal(false);
+      setEditingPost(null);
+      await fetchPosts(selectedStatus || undefined, page);
+    },
+    [editingPost, updatePost, fetchPosts, selectedStatus, page]
+  );
 
   const handleCloseEditModal = useCallback(() => {
     setShowEditModal(false);
@@ -189,15 +266,21 @@ export const PostsList: React.FC = () => {
   }, []);
 
   // Handlers - Pagination
-  const handlePageChange = useCallback((newPage: number) => {
-    fetchPosts(selectedStatus || undefined, newPage);
-  }, [fetchPosts, selectedStatus]);
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      fetchPosts(selectedStatus || undefined, newPage);
+    },
+    [fetchPosts, selectedStatus]
+  );
 
-  const handlePageSizeChange = useCallback((newSize: number) => {
-    setPageSize(newSize);
-    setLimit(newSize);
-    fetchPosts(selectedStatus || undefined, 0, newSize);
-  }, [fetchPosts, selectedStatus, setLimit]);
+  const handlePageSizeChange = useCallback(
+    (newSize: number) => {
+      setPageSize(newSize);
+      setLimit(newSize);
+      fetchPosts(selectedStatus || undefined, 0, newSize);
+    },
+    [fetchPosts, selectedStatus, setLimit]
+  );
 
   // Export functionality
   const exportToCSV = useCallback(() => {
@@ -239,9 +322,9 @@ export const PostsList: React.FC = () => {
               Manage your Threads posts ({total} total)
             </CardDescription>
           </div>
-          <Button 
-            size="sm" 
-            variant="outline" 
+          <Button
+            size="sm"
+            variant="outline"
             onClick={exportToCSV}
             disabled={posts.length === 0}
           >
@@ -289,6 +372,7 @@ export const PostsList: React.FC = () => {
               onSelectAll={handleSelectAll}
               onBulkDelete={handleBulkDelete}
               onBulkSchedule={handleBulkSchedule}
+              onBulkScheduleRandom={() => setShowBulkSchedulerModal(true)}
             />
 
             {/* Posts Table */}
@@ -351,6 +435,14 @@ export const PostsList: React.FC = () => {
             setSchedulingPostId(null);
           }}
           onSchedule={handleSchedulerSubmit}
+        />
+
+        {/* Bulk Scheduler Modal */}
+        <BulkSchedulerModal
+          isOpen={showBulkSchedulerModal}
+          onClose={() => setShowBulkSchedulerModal(false)}
+          onSchedule={handleBulkScheduleWithRandomDistribution}
+          postCount={selectedPosts.size}
         />
       </CardContent>
     </Card>

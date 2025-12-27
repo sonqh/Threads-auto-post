@@ -103,7 +103,6 @@ export const loadConfig = (): AppConfig => {
  * Validate configuration
  */
 function validateConfig(config: AppConfig): void {
-  console.log("config: ", config);
   const errors: string[] = [];
 
   // Validate server port

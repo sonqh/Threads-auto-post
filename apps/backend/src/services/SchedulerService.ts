@@ -1,7 +1,7 @@
 import { Post, PostStatus, SchedulePattern } from "../models/Post.js";
 import { PostService } from "./PostService.js";
 import { postQueue } from "../queue/postQueue.js";
-import { logger } from "../config/logger.js";
+import { log } from "../config/logger.js";
 
 export class SchedulerService {
   private postService: PostService;
@@ -16,30 +16,32 @@ export class SchedulerService {
    */
   start(): void {
     if (this.isRunning) {
-      logger.warn("Scheduler is already running");
+      log.warn("Scheduler is already running");
       return;
     }
 
     this.isRunning = true;
-    console.log("\n");
-    console.log("╔════════════════════════════════════════════╗");
-    console.log("║         🕐 SCHEDULER SERVICE STARTED        ║");
-    console.log("║   Checking for scheduled posts every 60s   ║");
-    console.log("╚════════════════════════════════════════════╝");
-    console.log("\n");
-    logger.info(
+    log.success("\n╔════════════════════════════════════════════╗");
+    log.success("║         🕐 SCHEDULER SERVICE STARTED        ║");
+    log.success("║   Checking for scheduled posts every 60s   ║");
+    log.success("╚════════════════════════════════════════════╝\n");
+    log.success(
       "🕐 Scheduler started - checking for scheduled posts every 60 seconds"
     );
 
     // Run immediately on start
     this.processScheduledPosts().catch((error) => {
-      logger.error("Error processing scheduled posts:", error);
+      log.error("Error processing scheduled posts:", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
 
     // Then run every 60 seconds
     setInterval(() => {
       this.processScheduledPosts().catch((error) => {
-        logger.error("Error processing scheduled posts:", error);
+        log.error("Error processing scheduled posts:", {
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
     }, 60000); // 60 seconds
   }
@@ -49,7 +51,7 @@ export class SchedulerService {
    */
   stop(): void {
     this.isRunning = false;
-    logger.info("🛑 Scheduler stopped");
+    log.info("🛑 Scheduler stopped");
   }
 
   /**
@@ -60,11 +62,9 @@ export class SchedulerService {
       const now = new Date();
       const timestamp = now.toISOString();
 
-      console.log("\n" + "=".repeat(60));
-      console.log(
-        `[${timestamp}] 🔍 SCHEDULER RUN - Checking for due posts...`
-      );
-      console.log("=".repeat(60));
+      log.info("\n" + "=".repeat(60));
+      log.info(`[${timestamp}] 🔍 SCHEDULER RUN - Checking for due posts...`);
+      log.info("=".repeat(60));
 
       // Find all posts with SCHEDULED status that are due
       const scheduledPosts = await Post.find({
@@ -78,28 +78,26 @@ export class SchedulerService {
         scheduledAt: { $gt: now },
       }).limit(5);
 
-      console.log(`\n📊 DATABASE STATUS:`);
-      console.log(
+      log.info(`\n📊 DATABASE STATUS:`);
+      log.info(
         `   Due now (scheduledAt <= ${now.toLocaleTimeString()}): ${
           scheduledPosts.length
         } post(s)`
       );
-      console.log(
+      log.info(
         `   Upcoming (scheduledAt > now): ${upcomingPosts.length} post(s)`
       );
 
       if (upcomingPosts.length > 0) {
-        console.log(`\n⏳ Next scheduled posts:`);
+        log.info(`\n⏳ Next scheduled posts:`);
         upcomingPosts.forEach((p, i) => {
           const waitTime = p.scheduledAt
             ? Math.ceil((p.scheduledAt.getTime() - now.getTime()) / 1000)
             : 0;
-          console.log(`   ${i + 1}. "${p.content.substring(0, 40)}..."`);
-          console.log(
-            `       Scheduled: ${p.scheduledAt?.toISOString()} (UTC)`
-          );
-          console.log(`       Local: ${p.scheduledAt?.toLocaleString()}`);
-          console.log(
+          log.info(`   ${i + 1}. "${p.content.substring(0, 40)}..."`);
+          log.info(`       Scheduled: ${p.scheduledAt?.toISOString()} (UTC)`);
+          log.info(`       Local: ${p.scheduledAt?.toLocaleString()}`);
+          log.info(
             `       Wait time: ${waitTime}s (${Math.floor(
               waitTime / 3600
             )}h ${Math.floor((waitTime % 3600) / 60)}m)`
@@ -108,15 +106,15 @@ export class SchedulerService {
       }
 
       if (scheduledPosts.length === 0) {
-        console.log(
+        log.info(
           `\n✓ No posts due right now. Scheduler will check again in 60 seconds.`
         );
-        console.log("=".repeat(60) + "\n");
+        log.info("=".repeat(60) + "\n");
         return;
       }
 
-      console.log(`\n🎯 PROCESSING ${scheduledPosts.length} post(s):`);
-      logger.info(
+      log.success(`\n🎯 PROCESSING ${scheduledPosts.length} post(s):`);
+      log.success(
         `📋 Found ${scheduledPosts.length} scheduled post(s) to process`
       );
 
@@ -132,12 +130,10 @@ export class SchedulerService {
           const pattern = post.scheduleConfig?.pattern || "ONCE";
           const postPreview = post.content.substring(0, 40).replace(/\n/g, " ");
 
-          console.log(`\n   📌 Post: ${post._id}`);
-          console.log(`       Content: "${postPreview}..."`);
-          console.log(`       Pattern: ${pattern}`);
-          console.log(
-            `       Scheduled: ${post.scheduledAt?.toLocaleString()}`
-          );
+          log.info(`\n   📌 Post: ${post._id}`);
+          log.info(`       Content: "${postPreview}..."`);
+          log.info(`       Pattern: ${pattern}`);
+          log.info(`       Scheduled: ${post.scheduledAt?.toLocaleString()}`);
 
           if (isRecurring) {
             // For recurring posts, calculate next run time and keep post SCHEDULED
@@ -145,16 +141,16 @@ export class SchedulerService {
 
             if (nextRunTime <= now) {
               // Time to run
-              console.log(
+              log.success(
                 `       ✅ DUE (recurring) - Next: ${nextRunTime.toLocaleString()}`
               );
-              logger.info(
+              log.success(
                 `⏰ Publishing recurring post ${post._id} (${pattern})`
               );
 
               // Add to queue for publishing
               const jobId = `scheduled-${post._id}-${Date.now()}`;
-              console.log(`       ⏳ Queuing... (jobId: ${jobId})`);
+              log.info(`       ⏳ Queuing... (jobId: ${jobId})`);
               await postQueue.add(
                 "publish-post",
                 { postId: post._id },
@@ -173,22 +169,22 @@ export class SchedulerService {
               // Update next scheduled time
               post.scheduledAt = nextRunTime;
               await post.save();
-              console.log(
+              log.success(
                 `       ✅ Queued! Next run: ${nextRunTime.toLocaleString()}`
               );
             } else {
-              console.log(
+              log.info(
                 `       ⏭️  Not due yet. Next: ${nextRunTime.toLocaleString()}`
               );
             }
           } else {
             // For one-time posts (ONCE), publish and mark as published
-            console.log(`       ✅ DUE (one-time)`);
-            logger.info(`⏰ Publishing one-time scheduled post ${post._id}`);
+            log.success(`       ✅ DUE (one-time)`);
+            log.success(`⏰ Publishing one-time scheduled post ${post._id}`);
 
             // Add to queue for publishing
             const jobId = `scheduled-${post._id}-${Date.now()}`;
-            console.log(`       ⏳ Queuing... (jobId: ${jobId})`);
+            log.info(`       ⏳ Queuing... (jobId: ${jobId})`);
             await postQueue.add(
               "publish-post",
               { postId: post._id },
@@ -204,18 +200,24 @@ export class SchedulerService {
               currentStep: "Queued for publishing...",
             };
             await post.save();
-            console.log(`       ✅ Queued!`);
+            log.success(`       ✅ Queued!`);
           }
         } catch (error) {
-          console.log(`\n   ❌ ERROR Processing post ${post._id}:`, error);
-          logger.error(`Failed to process scheduled post ${post._id}:`, error);
+          log.error(`\n   ❌ ERROR Processing post ${post._id}:`, {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          log.error(`Failed to process scheduled post ${post._id}:`, {
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       }
 
-      console.log("\n" + "=".repeat(60) + "\n");
+      log.info("\n" + "=".repeat(60) + "\n");
     } catch (error) {
-      logger.error("Error in processScheduledPosts:", error);
-      console.log("=".repeat(60) + "\n");
+      log.error("Error in processScheduledPosts:", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      log.info("=".repeat(60) + "\n");
     }
   }
 

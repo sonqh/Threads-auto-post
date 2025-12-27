@@ -165,7 +165,9 @@ export class ThreadsAdapter extends BasePlatformAdapter {
             `💬 Comment split into ${commentParts.length} parts due to link limit`
           );
 
-          let replyToId = postId; // First comment replies to the post
+          // IMPORTANT: All comment parts should reply to the ORIGINAL POST, not to each other
+          // This prevents creating a chain of replies
+          const replyToId = postId; // All comments reply to the original post
 
           for (let i = 0; i < commentParts.length; i++) {
             const part = commentParts[i];
@@ -177,6 +179,7 @@ export class ThreadsAdapter extends BasePlatformAdapter {
                 urlCount: partUrls.length,
                 textLength: part.length,
                 replyingTo: replyToId,
+                note: "All parts reply to original post",
               }
             );
 
@@ -197,8 +200,7 @@ export class ThreadsAdapter extends BasePlatformAdapter {
               } published successfully with ID: ${commentPostId}`
             );
 
-            // Next comments reply to this comment
-            replyToId = commentPostId;
+            // Note: replyToId stays as postId - all parts reply to original post
           }
         } else {
           // Original flow: single comment
@@ -404,12 +406,16 @@ export class ThreadsAdapter extends BasePlatformAdapter {
     text: string,
     mediaUrls: string[]
   ): Promise<string> {
+    log.info(`🎠 Creating carousel with ${mediaUrls.length} items`);
+
     // Create individual media containers (supports both images and videos)
     const mediaContainerIds: string[] = [];
 
-    for (const mediaUrl of mediaUrls.slice(0, 10)) {
-      // Threads supports up to 10 items
+    for (let i = 0; i < mediaUrls.slice(0, 10).length; i++) {
+      const mediaUrl = mediaUrls[i];
       const mediaType = this.detectMediaType(mediaUrl);
+
+      log.debug(`  Creating child ${i + 1}/${mediaUrls.length}: ${mediaType}`);
 
       const payload: any = {
         media_type: mediaType,
@@ -423,24 +429,50 @@ export class ThreadsAdapter extends BasePlatformAdapter {
         payload.image_url = mediaUrl;
       }
 
-      const response = await axios.post(
-        `${this.baseUrl}/${this.userId}/threads`,
-        payload
-      );
-      mediaContainerIds.push(response.data.id);
+      try {
+        const response = await axios.post(
+          `${this.baseUrl}/${this.userId}/threads`,
+          payload
+        );
+        const childId = response.data.id;
+        mediaContainerIds.push(childId);
+        log.debug(`  ✅ Child ${i + 1} created: ${childId}`);
+      } catch (error) {
+        log.error(`  ❌ Failed to create child ${i + 1}:`, {
+          error: error instanceof Error ? error.message : String(error),
+          mediaUrl,
+        });
+        throw error;
+      }
     }
 
+    log.info(`✅ All ${mediaContainerIds.length} carousel items created`);
+    log.debug(`Carousel child IDs: ${mediaContainerIds.join(", ")}`);
+
+    // Wait briefly for all children to be processed (optional but recommended)
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
     // Create carousel container
-    const response = await axios.post(
-      `${this.baseUrl}/${this.userId}/threads`,
-      {
-        media_type: "CAROUSEL",
-        children: mediaContainerIds,
-        text,
-        access_token: this.accessToken,
-      }
-    );
-    return response.data.id;
+    log.info("📦 Creating carousel container...");
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/${this.userId}/threads`,
+        {
+          media_type: "CAROUSEL",
+          children: mediaContainerIds,
+          text,
+          access_token: this.accessToken,
+        }
+      );
+      log.success(`✅ Carousel container created: ${response.data.id}`);
+      return response.data.id;
+    } catch (error) {
+      log.error("❌ Failed to create carousel container:", {
+        error: error instanceof Error ? error.message : String(error),
+        childIds: mediaContainerIds,
+      });
+      throw error;
+    }
   }
 
   private detectMediaType(url: string): "IMAGE" | "VIDEO" {

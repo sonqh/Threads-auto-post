@@ -45,6 +45,25 @@ export interface PostsResponse {
   skip: number;
 }
 
+export interface JobRecord {
+  id: string;
+  name: string;
+  state: string;
+  data: {
+    postId?: string;
+    content?: string;
+    [key: string]: unknown;
+  };
+  progress?: number;
+  returnvalue?: unknown;
+  failedReason?: string;
+  attemptsMade: number;
+  maxAttempts: number;
+  timestamp?: number;
+  processedOn?: number;
+  finishedOn?: number;
+}
+
 export const postsApi = {
   async getPosts(params?: {
     status?: string;
@@ -128,6 +147,47 @@ export const postsApi = {
     const response = await axios.post(`${API_BASE_URL}/posts/${id}/publish`);
     return response.data;
   },
+
+  async bulkSchedule(
+    postIds: string[],
+    startTime: string,
+    endTime: string,
+    options?: {
+      randomizeOrder?: boolean;
+      seed?: number;
+    }
+  ): Promise<{
+    success: boolean;
+    count: number;
+    posts: Array<{
+      postId: string;
+      content: string;
+      scheduledAt: string;
+      status: string;
+    }>;
+    timeRange: {
+      start: string;
+      end: string;
+      durationMinutes: number;
+    };
+  }> {
+    const response = await axios.post(`${API_BASE_URL}/posts/bulk-schedule`, {
+      postIds,
+      startTime,
+      endTime,
+      ...options,
+    });
+    return response.data;
+  },
+
+  async retryPost(id: string): Promise<{
+    success: boolean;
+    message: string;
+    post: Post;
+  }> {
+    const response = await axios.post(`${API_BASE_URL}/posts/${id}/retry`);
+    return response.data;
+  },
 };
 
 export const monitoringApi = {
@@ -162,9 +222,10 @@ export const monitoringApi = {
   },
 
   async getRecentJobs(limit: number = 50): Promise<{
-    active: any[];
-    completed: any[];
-    failed: any[];
+    active: JobRecord[];
+    completed: JobRecord[];
+    failed: JobRecord[];
+    delayed: JobRecord[];
   }> {
     const response = await axios.get(
       `${API_BASE_URL}/posts/monitoring/jobs/recent`,
@@ -178,7 +239,7 @@ export const monitoringApi = {
   async getJobsByState(
     state: "active" | "completed" | "failed" | "delayed" | "waiting",
     limit: number = 20
-  ): Promise<any[]> {
+  ): Promise<JobRecord[]> {
     const response = await axios.get(
       `${API_BASE_URL}/posts/monitoring/jobs/state/${state}`,
       { params: { limit } }
@@ -186,7 +247,7 @@ export const monitoringApi = {
     return response.data;
   },
 
-  async getJobDetails(jobId: string): Promise<any> {
+  async getJobDetails(jobId: string): Promise<JobRecord | null> {
     const response = await axios.get(
       `${API_BASE_URL}/posts/monitoring/jobs/${jobId}`
     );

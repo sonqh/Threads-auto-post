@@ -112,20 +112,22 @@ export class MonitoringService {
   }
 
   /**
-   * Get recent jobs (completed, failed, and active)
+   * Get recent jobs (completed, failed, active, and delayed)
    */
   async getRecentJobs(limit: number = 50): Promise<{
     active: JobDetails[];
     completed: JobDetails[];
     failed: JobDetails[];
+    delayed: JobDetails[];
   }> {
-    const [active, completed, failed] = await Promise.all([
+    const [active, completed, failed, delayed] = await Promise.all([
       this.getJobsByState("active", limit),
       this.getJobsByState("completed", limit),
       this.getJobsByState("failed", limit),
+      this.getJobsByState("delayed", limit),
     ]);
 
-    return { active, completed, failed };
+    return { active, completed, failed, delayed };
   }
 
   /**

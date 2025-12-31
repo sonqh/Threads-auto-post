@@ -81,6 +81,16 @@ export const PostsList: React.FC = () => {
     }
   }, [credentials, selectedAccountId]);
 
+  // Close scheduler modal when account changes to prevent stale accountId
+  useEffect(() => {
+    if (showSchedulerModal) {
+      // Account changed while modal was open - close it
+      setShowSchedulerModal(false);
+      setSchedulingPostId(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAccountId]);
+
   useEffect(() => {
     console.log("selectedAccountId ", selectedAccountId);
   }, [selectedAccountId]);
@@ -375,7 +385,11 @@ export const PostsList: React.FC = () => {
   const handleSchedulerSubmit = useCallback(
     async (config: ScheduleConfig) => {
       if (!schedulingPostId) return;
-      if (!selectedAccountId) {
+
+      // Get the LATEST selectedAccountId value at submit time, not from closure
+      const currentAccountId = selectedAccountId;
+
+      if (!currentAccountId) {
         alert("Please select an account to schedule for");
         return;
       }
@@ -383,9 +397,9 @@ export const PostsList: React.FC = () => {
         console.log("🎯 PostsList: Schedule submitted");
         console.log(`   Post ID: ${schedulingPostId}`);
         console.log(`   Config:`, config);
-        console.log(`   Account ID: ${selectedAccountId}`);
+        console.log(`   Account ID: ${currentAccountId}`);
 
-        await schedulePost(schedulingPostId, config, [selectedAccountId]);
+        await schedulePost(schedulingPostId, config, [currentAccountId]);
         console.log(" PostsList: Schedule API success");
 
         await fetchPosts(selectedStatus || undefined, page);
@@ -690,6 +704,7 @@ export const PostsList: React.FC = () => {
             setSchedulingPostId(null);
           }}
           onSchedule={handleSchedulerSubmit}
+          selectedAccount={credentials.find((c) => c.id === selectedAccountId)}
         />
 
         {/* Bulk Scheduler Modal */}

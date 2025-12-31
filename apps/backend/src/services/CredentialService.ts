@@ -1,10 +1,10 @@
-import { logger } from "../config/logger";
+import { logger } from "../config/logger.js";
 import {
   ThreadsCredential,
   IThreadsCredential,
   CredentialStatus,
-} from "../models/ThreadsCredential";
-import { ThreadsService } from "./ThreadsService";
+} from "../models/ThreadsCredential.js";
+import { ThreadsService } from "./ThreadsService.js";
 
 /**
  * Service for managing multiple Threads accounts per user

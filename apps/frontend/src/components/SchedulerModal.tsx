@@ -1,5 +1,12 @@
 import React, { useState } from "react";
-import { X, Calendar, Clock, Repeat2, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  X,
+  Calendar,
+  Clock,
+  Repeat2,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import type { ScheduleConfig } from "@/types";
@@ -37,11 +44,15 @@ const DatePicker: React.FC<{
   };
 
   const previousMonth = () => {
-    setDisplayMonth(new Date(displayMonth.getFullYear(), displayMonth.getMonth() - 1));
+    setDisplayMonth(
+      new Date(displayMonth.getFullYear(), displayMonth.getMonth() - 1)
+    );
   };
 
   const nextMonth = () => {
-    setDisplayMonth(new Date(displayMonth.getFullYear(), displayMonth.getMonth() + 1));
+    setDisplayMonth(
+      new Date(displayMonth.getFullYear(), displayMonth.getMonth() + 1)
+    );
   };
 
   const days = [];
@@ -54,14 +65,25 @@ const DatePicker: React.FC<{
   }
 
   const monthNames = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
   ];
 
   const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   const selectedDate = value ? new Date(value) : null;
-  const isSelectedMonth = selectedDate &&
+  const isSelectedMonth =
+    selectedDate &&
     selectedDate.getMonth() === displayMonth.getMonth() &&
     selectedDate.getFullYear() === displayMonth.getFullYear();
 
@@ -108,7 +130,10 @@ const DatePicker: React.FC<{
           {/* Weekday Headers */}
           <div className="grid grid-cols-7 gap-1 mb-2">
             {weekDays.map((day) => (
-              <div key={day} className="text-center text-xs font-semibold text-gray-500 py-1">
+              <div
+                key={day}
+                className="text-center text-xs font-semibold text-gray-500 py-1"
+              >
                 {day}
               </div>
             ))}
@@ -126,7 +151,11 @@ const DatePicker: React.FC<{
                     ? "text-transparent cursor-default"
                     : isSelectedMonth && selectedDate?.getDate() === day
                     ? "bg-blue-500 text-white font-bold"
-                    : new Date(displayMonth.getFullYear(), displayMonth.getMonth(), day) < new Date()
+                    : new Date(
+                        displayMonth.getFullYear(),
+                        displayMonth.getMonth(),
+                        day
+                      ) < new Date()
                     ? "text-gray-300 cursor-not-allowed"
                     : "hover:bg-blue-100 text-gray-700"
                 }`}
@@ -158,10 +187,15 @@ const TimePicker: React.FC<{
   onChange: (time: string) => void;
 }> = ({ value, onChange }) => {
   const [showPicker, setShowPicker] = useState(false);
-  const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
-  const minutes = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
+  const hours = Array.from({ length: 24 }, (_, i) =>
+    String(i).padStart(2, "0")
+  );
+  const minutes = Array.from({ length: 60 }, (_, i) =>
+    String(i).padStart(2, "0")
+  );
 
-  const [hour, minute] = value.split(":").length === 2 ? value.split(":") : ["09", "00"];
+  const [hour, minute] =
+    value.split(":").length === 2 ? value.split(":") : ["09", "00"];
 
   const handleTimeChange = (h: string, m: string) => {
     onChange(`${h}:${m}`);
@@ -179,7 +213,9 @@ const TimePicker: React.FC<{
 
       {showPicker && (
         <div className="absolute top-full mt-2 bg-white border border-gray-300 rounded-lg shadow-lg p-4 z-50 w-full">
-          <div className="text-xs font-semibold text-gray-600 mb-2">Select Time</div>
+          <div className="text-xs font-semibold text-gray-600 mb-2">
+            Select Time
+          </div>
           <div className="flex items-center gap-2">
             {/* Hours */}
             <div className="flex-1">
@@ -219,23 +255,25 @@ const TimePicker: React.FC<{
 
           {/* Quick Select Buttons */}
           <div className="grid grid-cols-3 gap-1 mt-3">
-            {["09:00", "12:00", "14:00", "16:00", "18:00", "20:00"].map((time) => (
-              <button
-                key={time}
-                onClick={() => {
-                  const [h, m] = time.split(":");
-                  handleTimeChange(h, m);
-                  setShowPicker(false);
-                }}
-                className={`text-xs font-medium py-1 px-2 rounded transition ${
-                  value === time
-                    ? "bg-blue-500 text-white"
-                    : "bg-gray-100 hover:bg-gray-200 text-gray-700"
-                }`}
-              >
-                {time}
-              </button>
-            ))}
+            {["09:00", "12:00", "14:00", "16:00", "18:00", "20:00"].map(
+              (time) => (
+                <button
+                  key={time}
+                  onClick={() => {
+                    const [h, m] = time.split(":");
+                    handleTimeChange(h, m);
+                    setShowPicker(false);
+                  }}
+                  className={`text-xs font-medium py-1 px-2 rounded transition ${
+                    value === time
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+                  }`}
+                >
+                  {time}
+                </button>
+              )
+            )}
           </div>
         </div>
       )}
@@ -247,12 +285,19 @@ interface SchedulerModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSchedule: (config: ScheduleConfig) => void;
+  selectedAccount?: {
+    id: string;
+    accountName: string;
+    threadsUserId: string;
+    isDefault?: boolean;
+  };
 }
 
 export const SchedulerModal: React.FC<SchedulerModalProps> = ({
   isOpen,
   onClose,
   onSchedule,
+  selectedAccount,
 }) => {
   const [pattern, setPattern] = useState<ScheduleConfig["pattern"]>("ONCE");
   const [scheduledAt, setScheduledAt] = useState("");
@@ -286,14 +331,22 @@ export const SchedulerModal: React.FC<SchedulerModalProps> = ({
     // Combine date and time into proper local datetime, then convert to UTC
     const [hours, minutes, seconds] = time.split(":").map(Number);
     const [year, month, day] = scheduledAt.split("-").map(Number);
-    
+
     // Create date object in user's LOCAL timezone
-    const localDate = new Date(year, month - 1, day, hours, minutes, seconds || 0, 0);
-    
+    const localDate = new Date(
+      year,
+      month - 1,
+      day,
+      hours,
+      minutes,
+      seconds || 0,
+      0
+    );
+
     // Convert to UTC ISO string (this is what we want!)
     // When user selects 7:18 PM PST, this becomes 2:18 AM UTC next day
     const isoDateTime = localDate.toISOString();
-    
+
     console.log("📅 Schedule Debug:");
     console.log(`   Selected date: ${scheduledAt}`);
     console.log(`   Selected time: ${time} (your local time)`);
@@ -315,7 +368,15 @@ export const SchedulerModal: React.FC<SchedulerModalProps> = ({
       // Parse endDate with proper timezone conversion
       if (endDate) {
         const [endYear, endMonth, endDay] = endDate.split("-").map(Number);
-        const endDateLocal = new Date(endYear, endMonth - 1, endDay, 23, 59, 59, 999);
+        const endDateLocal = new Date(
+          endYear,
+          endMonth - 1,
+          endDay,
+          23,
+          59,
+          59,
+          999
+        );
         config.endDate = endDateLocal.toISOString();
       }
     }
@@ -331,10 +392,26 @@ export const SchedulerModal: React.FC<SchedulerModalProps> = ({
       <Card className="w-full max-w-md max-h-[90vh] overflow-y-auto p-6 bg-white">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">Schedule Post</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600"
+          >
             <X size={20} />
           </button>
         </div>
+
+        {/* Selected Account Indicator */}
+        {selectedAccount && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+            <p className="text-xs font-medium text-blue-900 mb-1">
+              📱 Posting to account:
+            </p>
+            <p className="text-sm font-semibold text-blue-700">
+              {selectedAccount.accountName}
+              {selectedAccount.isDefault && " (Default)"}
+            </p>
+          </div>
+        )}
 
         {/* Error Message */}
         {error && (
@@ -360,7 +437,9 @@ export const SchedulerModal: React.FC<SchedulerModalProps> = ({
               ].map((opt) => (
                 <button
                   key={opt.id}
-                  onClick={() => setPattern(opt.id as ScheduleConfig["pattern"])}
+                  onClick={() =>
+                    setPattern(opt.id as ScheduleConfig["pattern"])
+                  }
                   className={`px-3 py-3 rounded-lg text-sm font-medium transition transform ${
                     pattern === opt.id
                       ? "bg-blue-500 text-white shadow-lg scale-105 border border-blue-600"
@@ -368,7 +447,11 @@ export const SchedulerModal: React.FC<SchedulerModalProps> = ({
                   }`}
                 >
                   <div className="font-semibold">{opt.label}</div>
-                  <div className={`text-xs ${pattern === opt.id ? "text-blue-100" : "text-gray-500"}`}>
+                  <div
+                    className={`text-xs ${
+                      pattern === opt.id ? "text-blue-100" : "text-gray-500"
+                    }`}
+                  >
                     {opt.desc}
                   </div>
                 </button>
@@ -427,7 +510,8 @@ export const SchedulerModal: React.FC<SchedulerModalProps> = ({
               </div>
               {daysOfWeek.length > 0 && (
                 <p className="text-xs text-blue-700 mt-2">
-                  ✓ Posts on {daysOfWeek.map(idx => dayNames[idx]).join(", ")} at {time}
+                  ✓ Posts on {daysOfWeek.map((idx) => dayNames[idx]).join(", ")}{" "}
+                  at {time}
                 </p>
               )}
             </div>
@@ -447,15 +531,27 @@ export const SchedulerModal: React.FC<SchedulerModalProps> = ({
                 {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
                   <option key={day} value={day}>
                     {day}
-                    {day === 1 ? "st" : day === 2 ? "nd" : day === 3 ? "rd" : "th"} of
-                    every month
+                    {day === 1
+                      ? "st"
+                      : day === 2
+                      ? "nd"
+                      : day === 3
+                      ? "rd"
+                      : "th"}{" "}
+                    of every month
                   </option>
                 ))}
               </select>
               <p className="text-xs text-green-700 mt-2">
                 ✓ Posts on the {dayOfMonth}
-                {dayOfMonth === 1 ? "st" : dayOfMonth === 2 ? "nd" : dayOfMonth === 3 ? "rd" : "th"} of every
-                month at {time}
+                {dayOfMonth === 1
+                  ? "st"
+                  : dayOfMonth === 2
+                  ? "nd"
+                  : dayOfMonth === 3
+                  ? "rd"
+                  : "th"}{" "}
+                of every month at {time}
               </p>
             </div>
           )}
@@ -481,19 +577,47 @@ export const SchedulerModal: React.FC<SchedulerModalProps> = ({
 
           {/* Schedule Summary */}
           <div className="p-3 bg-gray-50 rounded-md border border-gray-200 mb-2">
-            <p className="text-xs font-semibold text-gray-700 mb-2">📋 Schedule Summary:</p>
+            <p className="text-xs font-semibold text-gray-700 mb-2">
+              📋 Schedule Summary:
+            </p>
             <div className="space-y-1 text-xs text-gray-600">
               <p>
-                <span className="font-medium">Type:</span> {pattern === "ONCE" ? "One-time" : pattern === "WEEKLY" ? "Weekly on " + daysOfWeek.map(idx => dayNames[idx]).join(", ") : pattern === "MONTHLY" ? `Monthly on the ${dayOfMonth}${dayOfMonth === 1 ? "st" : dayOfMonth === 2 ? "nd" : dayOfMonth === 3 ? "rd" : "th"}` : "Daily from date range"}
+                <span className="font-medium">Type:</span>{" "}
+                {pattern === "ONCE"
+                  ? "One-time"
+                  : pattern === "WEEKLY"
+                  ? "Weekly on " +
+                    daysOfWeek.map((idx) => dayNames[idx]).join(", ")
+                  : pattern === "MONTHLY"
+                  ? `Monthly on the ${dayOfMonth}${
+                      dayOfMonth === 1
+                        ? "st"
+                        : dayOfMonth === 2
+                        ? "nd"
+                        : dayOfMonth === 3
+                        ? "rd"
+                        : "th"
+                    }`
+                  : "Daily from date range"}
               </p>
               <p>
                 <span className="font-medium">Date:</span>{" "}
-                {scheduledAt ? new Date(scheduledAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : "Not selected"}
+                {scheduledAt
+                  ? new Date(scheduledAt).toLocaleDateString("en-US", {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                    })
+                  : "Not selected"}
               </p>
               {endDate && (
                 <p>
                   <span className="font-medium">Until:</span>{" "}
-                  {new Date(endDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                  {new Date(endDate).toLocaleDateString("en-US", {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                  })}
                 </p>
               )}
               <p>
@@ -504,11 +628,7 @@ export const SchedulerModal: React.FC<SchedulerModalProps> = ({
 
           {/* Action Buttons */}
           <div className="flex gap-2 pt-4">
-            <Button
-              onClick={onClose}
-              variant="outline"
-              className="flex-1"
-            >
+            <Button onClick={onClose} variant="outline" className="flex-1">
               Cancel
             </Button>
             <Button
@@ -516,7 +636,7 @@ export const SchedulerModal: React.FC<SchedulerModalProps> = ({
               className="flex-1 bg-blue-500 hover:bg-blue-600"
             >
               Schedule
-            </Button> 
+            </Button>
           </div>
         </div>
       </Card>

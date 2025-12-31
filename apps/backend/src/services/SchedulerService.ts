@@ -227,7 +227,10 @@ export class SchedulerService {
               log.info(`⏳ Queuing... (jobId: ${jobId})`);
               await postQueue.add(
                 "publish-post",
-                { postId: post._id },
+                {
+                  postId: post._id,
+                  accountId: post.threadsAccountId?.toString(), // Pass account ID to worker
+                },
                 { jobId }
               );
 
@@ -291,7 +294,10 @@ export class SchedulerService {
             try {
               await postQueue.add(
                 "publish-post",
-                { postId: post._id },
+                {
+                  postId: post._id,
+                  accountId: post.threadsAccountId?.toString(), // Pass account ID to worker
+                },
                 {
                   jobId,
                   attempts: 3,

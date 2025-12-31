@@ -1,26 +1,38 @@
-version: "3.8"
-
 services:
   mongodb:
     image: docker.io/library/mongo:latest
     container_name: threads-mongodb
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "27018:27017"
     volumes:
       - mongodb_data:/data/db
     environment:
       - MONGO_INITDB_DATABASE=threads-post-scheduler
+    networks:
+      - app-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: docker.io/library/redis:latest
     container_name: threads-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - redis_data:/data
+    networks:
+      - app-network
     command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   backend:
     build:
@@ -37,33 +49,47 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - TZ=Asia/Ho_Chi_Minh
+      - USE_EVENT_DRIVEN_SCHEDULER=false
     depends_on:
-      - mongodb
-      - redis
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
-      - ./apps/backend:/app
-      - /app/node_modules
+      - ./apps/backend/logs:/app/logs
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
-  worker:
+  frontend:
     build:
-      context: ./apps/backend
-      dockerfile: Containerfile
-    container_name: threads-worker
+      context: .
+      dockerfile: ./apps/frontend/Dockerfile
+    container_name: threads-frontend
     restart: unless-stopped
-    command: npm run worker
-    environment:
-      - NODE_ENV=production
-      - MONGODB_URI=mongodb://mongodb:27017/threads-post-scheduler
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - TZ=Asia/Ho_Chi_Minh
+    ports:
+      - "3000:3000"
     depends_on:
-      - mongodb
-      - redis
-    volumes:
-      - ./apps/backend:/app
-      - /app/node_modules
+      - backend
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 volumes:
   mongodb_data:
   redis_data:
+
+networks:
+  app-network:
+    driver: bridge
+

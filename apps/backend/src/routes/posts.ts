@@ -240,7 +240,15 @@ router.post("/:id/schedule", async (req, res) => {
       time: time || "09:00",
     };
 
-    const post = await postService.schedulePost(req.params.id, scheduleConfig);
+    // Use first accountId from accountIds array if provided
+    const accountId =
+      accountIds && accountIds.length > 0 ? accountIds[0] : undefined;
+
+    const post = await postService.schedulePost(
+      req.params.id,
+      scheduleConfig,
+      accountId
+    );
     console.log(` Post scheduled successfully`);
     console.log(`   Updated Status: ${post.status}`);
     console.log(`   Job ID: ${post.jobId || "Not set yet"}`);

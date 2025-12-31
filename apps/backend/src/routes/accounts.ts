@@ -1,8 +1,8 @@
 import { Router, Request, Response } from "express";
-import { logger } from "../config/logger";
-import { credentialService } from "../services/CredentialService";
-import { ThreadsService } from "../services/ThreadsService";
-import { CredentialStatus } from "../models/ThreadsCredential";
+import { logger } from "../config/logger.js";
+import { credentialService } from "../services/CredentialService.js";
+import { ThreadsService } from "../services/ThreadsService.js";
+import { CredentialStatus } from "../models/ThreadsCredential.js";
 
 export const accountsRouter = Router();
 

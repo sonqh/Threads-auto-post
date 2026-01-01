@@ -29,30 +29,30 @@ A production-grade, event-driven post scheduling system for Meta Threads that:
 
 ### Architecture Stack
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                   Frontend (React + Vite)               │
-│              UI for post creation & monitoring           │
-└────────────────────┬────────────────────────────────────┘
-                     │ HTTP/REST
-┌────────────────────▼────────────────────────────────────┐
-│                  Backend (Express.js)                   │
-│  ┌────────────────────────────────────────────────┐    │
-│  │  PostService    SchedulerService              │    │
-│  │  ThreadsAdapter EventDrivenScheduler          │    │
-│  │  MonitoringService   IdempotencyService       │    │
-│  └────────────────────────────────────────────────┘    │
-└────────┬──────────────────────┬──────────────────────────┘
-         │                      │
-    ┌────▼─────────┐   ┌───────▼──────────┐
-    │  MongoDB     │   │   BullMQ Queues  │
-    │  (Posts)     │   │  (Jobs)          │
-    └──────────────┘   └────┬──────────────┘
-                           │
-                    ┌──────▼─────────┐
-                    │     Redis      │
-                    │ (State, Cache) │
-                    └────────────────┘
+```mermaid
+architecture-beta
+    group frontend(cloud)[Frontend]
+        service ui(server)[React UI]
+
+    group backend(cloud)[Backend]
+        service api(server)[API Server]
+        service services(server)[Business Logic]
+        service worker(server)[Worker]
+
+    group infra(cloud)[Infrastructure]
+        service mongo(database)[MongoDB]
+        service redis(database)[Redis Queue]
+
+    service threads(internet)[Threads API]
+
+    ui:R -- L:api
+    api:R -- L:services
+    api:B -- T:redis
+    services:B -- T:mongo
+    services:B -- T:redis
+    worker:L -- R:services
+    redis:R -- L:worker
+    worker:B -- T:threads
 ```
 
 ---
@@ -61,24 +61,35 @@ A production-grade, event-driven post scheduling system for Meta Threads that:
 
 ### Core Problem & Solution
 
-**Old Approach (Polling)**:
+```mermaid
+flowchart LR
+    subgraph polling["❌ Polling Approach (Legacy)"]
+        direction TB
+        p1["Every 60 seconds:"]
+        p2["Query database"]
+        p3["Check for due posts"]
+        p4["Wait 60s"]
+        p1 --> p2 --> p3 --> p4 -.-> p1
+        stats1["📊 1,440 queries/day<br/>0-60s delay<br/>High CPU overhead"]
+    end
 
-```
-Every 60 seconds:
-  Query DB → Check for due posts → Wait 60s → Repeat
+    subgraph eventdriven["✅ Event-Driven (Zero-Polling)"]
+        direction TB
+        e1["User schedules post"]
+        e2["Create BullMQ<br/>delayed job"]
+        e3["Execute EXACTLY<br/>when needed"]
+        e4["Redis persists state"]
+        e1 --> e2 --> e3
+        e2 -.-> e4
+        stats2["📊 10-50 queries/day<br/>0-5s delay<br/>Minimal overhead"]
+    end
 
-Result: 1,440 queries/day, up to 60s delay
-```
+    polling --> eventdriven
 
-**New Approach (Event-Driven)**:
-
-```
-User schedules post
-  → Trigger event
-  → Create BullMQ delayed job
-  → BullMQ executes EXACTLY when needed
-
-Result: 10-50 queries/day, 0-5s delay, zero polling
+    style polling fill:#ffeeee,stroke:#cc0000,stroke-width:2px
+    style eventdriven fill:#eeffee,stroke:#00cc00,stroke-width:2px
+    style stats1 fill:#fff0f0,stroke:#cc6666
+    style stats2 fill:#f0fff0,stroke:#66cc66
 ```
 
 ### How It Works
@@ -111,32 +122,61 @@ graph TD
 
 Posts due within 5 seconds are processed together:
 
-```
-Current: 14:30:00.000
-Window: 14:30:00.000 → 14:30:05.000
+```mermaid
+flowchart TB
+    subgraph timeline["Timeline: Batch Window Processing"]
+        direction LR
+        t0["🕐 Current Time<br/>14:30:00"]
+        win["⏳ Batch Window<br/>14:30:00 → 14:30:05<br/>5 second duration"]
 
-Posts to process:
-  ✓ 14:30:00 (1000ms overdue)
-  ✓ 14:30:03 (3000ms overdue)
-  ✓ 14:30:04.999 (4999ms overdue)
-  ✗ 14:30:05.001 (next batch)
+        subgraph posts["Posts to Process"]
+            p1["Post 1<br/>14:30:00<br/>(0ms overdue)"]
+            p2["Post 2<br/>14:30:03<br/>(3s overdue)"]
+            p3["Post 3<br/>14:30:04.999<br/>(4.999s overdue)"]
+            p4["Post 4<br/>14:30:05.001<br/>❌ NOT included"]
+        end
+
+        t0 --> win --> posts
+    end
+
+    posts --> result["✅ All 3 posts processed<br/>together in 1 batch"]
+
+    style timeline fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    style posts fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style p4 fill:#ffcdd2,stroke:#d32f2f,stroke-width:2px
+    style result fill:#fff9c4,stroke:#fbc02d,stroke-width:2px
 ```
 
 Configurable: `SCHEDULER_BATCH_WINDOW_MS=5000`
 
 #### 2. Redis State Persistence
 
-```
-scheduler:nextExecutionAt    = 1735312200000  (14:30 timestamp)
-scheduler:activeJobId         = scheduler-check-1735312200000
-scheduler:lastCheck          = 1735312150000  (previous check)
+```mermaid
+flowchart TD
+    subgraph redis["Redis State Persistence<br/>(Survives Server Restarts)"]
+        direction LR
+        k1["🔑 scheduler:nextExecutionAt<br/>1735312200000<br/>(Timestamp of next check)"]
+        k2["🔑 scheduler:activeJobId<br/>scheduler-check-1735312200000<br/>(Current delayed job)"]
+        k3["🔑 scheduler:lastCheck<br/>1735312150000<br/>(Previous check time)"]
+    end
+
+    startup["🚀 Server Restart"]
+
+    startup --> redis
+    redis --> init["Initialize():<br/>Load Redis keys"]
+    init --> restore["Restore scheduler state<br/>Recreate delayed job if missing"]
+    restore --> resume["Resume scheduling<br/>No posts lost"]
+
+    style redis fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style restore fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style resume fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
 ```
 
 Survives restarts: On startup, `initialize()` restores from Redis.
 
 #### 3. Idempotent Job Creation
 
-```javascript
+```typescript
 // Same scheduledAt = Same job ID = No duplicates
 const jobId = `scheduler-check-${checkTimestamp}`;
 

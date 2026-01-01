@@ -70,6 +70,7 @@ export const postsApi = {
     status?: string;
     limit?: number;
     skip?: number;
+    accountId?: string;
   }): Promise<PostsResponse> {
     const response = await axios.get(`${API_BASE_URL}/posts`, { params });
     return response.data;

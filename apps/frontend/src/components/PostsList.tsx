@@ -1,7 +1,12 @@
 import { format } from "date-fns";
 import { Download, ArrowUp, ArrowDown } from "lucide-react";
 import React, { useEffect, useState, useCallback } from "react";
-import { usePostList, useThreadsPublish, useCredentials } from "../hooks";
+import {
+  usePostList,
+  useThreadsPublish,
+  useCredentials,
+  useAccountContext,
+} from "../hooks";
 import { PostsHeader } from "./PostsHeader";
 import { PostsTable } from "./PostsTable";
 import { EditPostModal } from "./EditPostModal";
@@ -30,6 +35,7 @@ import { postsApi } from "../lib/api";
 const STATUS_FILTERS = ["" as const, ...Object.values(PostStatus)] as const;
 
 export const PostsList: React.FC = () => {
+  const { selectedAccountId, setSelectedAccount } = useAccountContext();
   const {
     posts,
     loading,
@@ -59,9 +65,6 @@ export const PostsList: React.FC = () => {
     }
   );
   const [selectedPosts, setSelectedPosts] = useState<Set<string>>(new Set());
-  const [selectedAccountId, setSelectedAccountId] = useState<
-    string | undefined
-  >(undefined);
   const [pageSize, setPageSize] = useState(limit);
   const [sortBy, setSortBy] = useState<
     "createdAt" | "scheduledAt" | "publishedAt"
@@ -77,9 +80,9 @@ export const PostsList: React.FC = () => {
   useEffect(() => {
     if (credentials.length > 0 && !selectedAccountId) {
       const defaultCred = credentials.find((c) => c.isDefault);
-      setSelectedAccountId(defaultCred?.id || credentials[0]?.id);
+      setSelectedAccount(defaultCred?.id || credentials[0]?.id);
     }
-  }, [credentials, selectedAccountId]);
+  }, [credentials, selectedAccountId, setSelectedAccount]);
 
   // Close scheduler modal when account changes to prevent stale accountId
   useEffect(() => {
@@ -541,10 +544,10 @@ export const PostsList: React.FC = () => {
         {/* Account & Type Filters */}
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <AccountSelector
-            credentials={credentials}
-            selectedAccountId={selectedAccountId}
+            // credentials={credentials}
+            // selectedAccountId={selectedAccountId}
             onSelect={(id) =>
-              setSelectedAccountId(typeof id === "string" ? id : id[0])
+              setSelectedAccount(typeof id === "string" ? id : id[0])
             }
             className="col-span-1"
           />

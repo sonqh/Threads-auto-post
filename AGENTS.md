@@ -1,0 +1,2 @@
+- DON'T write any document if not requested.
+- DON'T create or suggest any example or integration code.

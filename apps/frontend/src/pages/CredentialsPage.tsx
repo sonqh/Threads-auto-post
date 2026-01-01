@@ -1,42 +1,19 @@
-import { useState, useEffect } from "react";
+import { useAccountContext } from "@/hooks";
 import { CredentialsSetup } from "../components/CredentialsSetup";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
-import { api } from "../lib/api";
 import { TrashIcon, CheckCircle, AlertCircle } from "lucide-react";
 
-interface StoredCredential {
-  id: string;
-  accountName: string;
-  threadsUserId: string;
-  isDefault: boolean;
-  status: string;
-  createdAt: string;
-}
-
 export const CredentialsPage = () => {
-  const [credentials, setCredentials] = useState<StoredCredential[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchCredentials();
-  }, []);
-
-  const fetchCredentials = async () => {
-    try {
-      setLoading(true);
-      const response = await api.get("/credentials");
-      setCredentials(response.data || []);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to fetch credentials"
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+  const {
+    accounts,
+    loading,
+    error,
+    clearError,
+    removeAccount,
+    setDefaultAccount,
+    fetchAccounts,
+  } = useAccountContext();
 
   const handleDelete = async (id: string) => {
     if (!window.confirm("Are you sure you want to remove this account?")) {
@@ -44,24 +21,17 @@ export const CredentialsPage = () => {
     }
 
     try {
-      setDeleteLoading(id);
-      await api.delete(`/credentials/${id}`);
-      setCredentials((prev) => prev.filter((c) => c.id !== id));
+      await removeAccount(id);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to delete credential"
-      );
-    } finally {
-      setDeleteLoading(null);
+      console.error("Failed to delete account:", err);
     }
   };
 
   const handleSetDefault = async (id: string) => {
     try {
-      await api.patch(`/credentials/${id}/default`);
-      await fetchCredentials();
+      await setDefaultAccount(id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to set default");
+      console.error("Failed to set default account:", err);
     }
   };
 
@@ -79,17 +49,23 @@ export const CredentialsPage = () => {
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
-          <div>
+          <div className="flex-1">
             <h3 className="font-semibold text-red-900">Error</h3>
             <p className="text-red-700">{error}</p>
           </div>
+          <button
+            onClick={clearError}
+            className="text-red-600 hover:text-red-700 font-semibold"
+          >
+            ✕
+          </button>
         </div>
       )}
 
       {/* Setup Form */}
       <div>
         <h2 className="text-xl font-bold mb-4">Add New Account</h2>
-        <CredentialsSetup onSuccess={fetchCredentials} />
+        <CredentialsSetup onSuccess={fetchAccounts} />
       </div>
 
       {/* Stored Credentials */}
@@ -100,45 +76,45 @@ export const CredentialsPage = () => {
           <Card className="p-6 text-center text-gray-500">
             Loading accounts...
           </Card>
-        ) : credentials.length === 0 ? (
+        ) : accounts.length === 0 ? (
           <Card className="p-6 text-center text-gray-500">
             <p>No accounts connected yet. Add one above to get started.</p>
           </Card>
         ) : (
           <div className="space-y-3">
-            {credentials.map((cred) => (
+            {accounts.map((account) => (
               <Card
-                key={cred.id}
+                key={account.id}
                 className="p-4 flex items-center justify-between"
               >
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <h3 className="font-semibold">{cred.accountName}</h3>
-                    {cred.isDefault && (
+                    <h3 className="font-semibold">{account.accountName}</h3>
+                    {account.isDefault && (
                       <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded">
                         Default
                       </span>
                     )}
-                    {cred.status === "ACTIVE" ? (
+                    {account.status === "ACTIVE" ? (
                       <CheckCircle className="w-4 h-4 text-green-600" />
                     ) : (
                       <AlertCircle className="w-4 h-4 text-yellow-600" />
                     )}
                   </div>
                   <p className="text-sm text-gray-600 mt-1">
-                    Threads ID: {cred.threadsUserId}
+                    Threads ID: {account.threadsUserId}
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
-                    Connected {new Date(cred.createdAt).toLocaleDateString()}
+                    Connected {new Date(account.createdAt).toLocaleDateString()}
                   </p>
                 </div>
 
                 <div className="flex gap-2 ml-4">
-                  {!cred.isDefault && (
+                  {!account.isDefault && (
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleSetDefault(cred.id)}
+                      onClick={() => handleSetDefault(account.id)}
                     >
                       Set Default
                     </Button>
@@ -146,16 +122,14 @@ export const CredentialsPage = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handleDelete(cred.id)}
-                    disabled={deleteLoading === cred.id}
+                    onClick={() => handleDelete(account.id)}
+                    disabled={loading}
                     className="text-red-600 hover:text-red-700"
                   >
-                    {deleteLoading === cred.id ? (
+                    {loading ? (
                       <span>Removing...</span>
                     ) : (
-                      <>
-                        <TrashIcon className="w-4 h-4" />
-                      </>
+                      <TrashIcon className="w-4 h-4" />
                     )}
                   </Button>
                 </div>
@@ -188,7 +162,7 @@ export const CredentialsPage = () => {
       </Card>
 
       {/* Next Steps */}
-      {credentials.length > 0 && (
+      {accounts.length > 0 && (
         <Card className="p-6 bg-green-50 border-green-200">
           <h3 className="font-semibold text-green-900 mb-2">
             ✓ Ready to schedule posts!

@@ -14,7 +14,8 @@ export const usePostList = (initialStatus?: PostStatusType) => {
     async (
       status?: PostStatusType | string,
       pageNum = 0,
-      pageLimit?: number
+      pageLimit?: number,
+      accountId?: string
     ) => {
       setLoading(true);
       setError(null);
@@ -24,6 +25,7 @@ export const usePostList = (initialStatus?: PostStatusType) => {
           status,
           limit: finalLimit,
           skip: pageNum * finalLimit,
+          accountId,
         });
         console.log("result == ", result);
         setPosts(result.posts);
@@ -58,6 +60,58 @@ export const usePostList = (initialStatus?: PostStatusType) => {
       setPosts((prev) => prev.filter((p) => !ids.includes(p._id)));
     } catch (err) {
       throw err instanceof Error ? err : new Error("Failed to delete posts");
+    }
+  }, []);
+
+  const createPost = useCallback(async (data: Partial<Post>): Promise<Post> => {
+    try {
+      // Ensure types are properly cast for the API
+      const apiData = {
+        ...data,
+        status: data.status as
+          | "DRAFT"
+          | "SCHEDULED"
+          | "PUBLISHED"
+          | "FAILED"
+          | undefined,
+        postType: data.postType as
+          | "TEXT"
+          | "IMAGE"
+          | "CAROUSEL"
+          | "VIDEO"
+          | undefined,
+        scheduledAt:
+          data.scheduledAt instanceof Date
+            ? data.scheduledAt.toISOString()
+            : data.scheduledAt,
+        createdAt:
+          data.createdAt instanceof Date
+            ? data.createdAt.toISOString()
+            : data.createdAt,
+        updatedAt:
+          data.updatedAt instanceof Date
+            ? data.updatedAt.toISOString()
+            : data.updatedAt,
+        publishingProgress: data.publishingProgress
+          ? {
+              ...data.publishingProgress,
+              startedAt:
+                data.publishingProgress.startedAt instanceof Date
+                  ? data.publishingProgress.startedAt.toISOString()
+                  : data.publishingProgress.startedAt,
+              completedAt:
+                data.publishingProgress.completedAt instanceof Date
+                  ? data.publishingProgress.completedAt.toISOString()
+                  : data.publishingProgress.completedAt,
+            }
+          : undefined,
+      };
+      const newPost = await postsApi.createPost(apiData);
+      setPosts((prev) => [newPost, ...prev]);
+      setTotal((prev) => prev + 1);
+      return newPost;
+    } catch (err) {
+      throw err instanceof Error ? err : new Error("Failed to create post");
     }
   }, []);
 
@@ -124,6 +178,7 @@ export const usePostList = (initialStatus?: PostStatusType) => {
     refetch,
     deletePost,
     bulkDelete,
+    createPost,
     updatePost,
   };
 };

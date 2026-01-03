@@ -10,11 +10,12 @@ const postService = new PostService();
 // Get all posts
 router.get("/", async (req, res) => {
   try {
-    const { status, limit = 50, skip = 0 } = req.query;
+    const { status, limit = 50, skip = 0, accountId } = req.query;
     const options = {
       status: status as string | undefined,
       limit: Number(limit),
       skip: Number(skip),
+      accountId: accountId as string | undefined,
     };
     const result = await postService.getPosts(options);
     res.json({

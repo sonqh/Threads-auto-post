@@ -1,5 +1,5 @@
 import { format } from "date-fns";
-import { Download, ArrowUp, ArrowDown } from "lucide-react";
+import { Download, ArrowUp, ArrowDown, Plus } from "lucide-react";
 import React, { useEffect, useState, useCallback } from "react";
 import {
   usePostList,
@@ -41,7 +41,8 @@ import { postsApi } from "../lib/api";
 const STATUS_FILTERS = ["" as const, ...Object.values(PostStatus)] as const;
 
 export const PostsList: React.FC = () => {
-  const { selectedAccountId, setSelectedAccount } = useAccountContext();
+  const { selectedAccountId, setSelectedAccount, getAccountById } =
+    useAccountContext();
   const {
     posts,
     loading,
@@ -53,10 +54,30 @@ export const PostsList: React.FC = () => {
     deletePost,
     bulkDelete,
     updatePost,
+    createPost,
   } = usePostList();
   const { publish, schedulePost, cancelSchedule, publishing } =
     useThreadsPublish();
   const { credentials } = useCredentials();
+  // Modal State
+  const [showLinksModal, setShowLinksModal] = useState(false);
+  const [linksModalPost, setLinksModalPost] = useState<Post | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingPost, setEditingPost] = useState<Post | null>(null);
+  const [showSchedulerModal, setShowSchedulerModal] = useState(false);
+  const [schedulingPostId, setSchedulingPostId] = useState<string | null>(null);
+  const [showBulkSchedulerModal, setShowBulkSchedulerModal] = useState(false);
+  const [selectedPosts, setSelectedPosts] = useState<Set<string>>(new Set());
+  const [pageSize, setPageSize] = useState(limit);
+  const [sortBy, setSortBy] = useState<
+    "createdAt" | "scheduledAt" | "publishedAt"
+  >("createdAt");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [postTypeFilter, setPostTypeFilter] = useState<string | "">(() => {
+    // Read postType from URL on mount
+    const params = new URLSearchParams(window.location.search);
+    return params.get("postType") || "";
+  });
 
   // UI State
   const [selectedStatus, setSelectedStatus] = useState<PostStatusType | "">(
@@ -70,56 +91,33 @@ export const PostsList: React.FC = () => {
         : "";
     }
   );
-  const [selectedPosts, setSelectedPosts] = useState<Set<string>>(new Set());
-  const [pageSize, setPageSize] = useState(limit);
-  const [sortBy, setSortBy] = useState<
-    "createdAt" | "scheduledAt" | "publishedAt"
-  >("createdAt");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
-  const [postTypeFilter, setPostTypeFilter] = useState<string | "">(() => {
-    // Read postType from URL on mount
-    const params = new URLSearchParams(window.location.search);
-    return params.get("postType") || "";
-  });
-
-  // Initialize selectedAccountId when credentials load
-  useEffect(() => {
-    if (credentials.length > 0 && !selectedAccountId) {
-      const defaultCred = credentials.find((c) => c.isDefault);
-      setSelectedAccount(defaultCred?.id || credentials[0]?.id);
-    }
-  }, [credentials, selectedAccountId, setSelectedAccount]);
 
   // Close scheduler modal when account changes to prevent stale accountId
   useEffect(() => {
     if (showSchedulerModal) {
-      // Account changed while modal was open - close it
       setShowSchedulerModal(false);
       setSchedulingPostId(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAccountId]);
+  }, [selectedAccountId, showSchedulerModal]);
 
   useEffect(() => {
-    console.log("selectedAccountId ", selectedAccountId);
-  }, [selectedAccountId]);
-
-  // Modal State
-  const [showLinksModal, setShowLinksModal] = useState(false);
-  const [linksModalPost, setLinksModalPost] = useState<Post | null>(null);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editingPost, setEditingPost] = useState<Post | null>(null);
-  const [showSchedulerModal, setShowSchedulerModal] = useState(false);
-  const [schedulingPostId, setSchedulingPostId] = useState<string | null>(null);
-  const [showBulkSchedulerModal, setShowBulkSchedulerModal] = useState(false);
+    if (selectedAccountId) {
+      console.log("selectedAccountId ", getAccountById(selectedAccountId));
+    }
+  }, [selectedAccountId, getAccountById]);
 
   // Calculate pagination
   const totalPages = Math.ceil(total / pageSize);
 
-  // Load posts when filters or pagination change
+  // Load posts when filters, pagination, or selected account change
   useEffect(() => {
-    fetchPosts(selectedStatus || undefined, page);
-  }, [selectedStatus, page, fetchPosts]);
+    fetchPosts(
+      selectedStatus || undefined,
+      page,
+      undefined,
+      selectedAccountId || undefined
+    );
+  }, [selectedStatus, page, selectedAccountId, fetchPosts]);
 
   // Update URL and reset to first page when status filter changes
   useEffect(() => {
@@ -136,7 +134,12 @@ export const PostsList: React.FC = () => {
     window.history.replaceState({}, "", newUrl);
 
     if (page !== 0) {
-      fetchPosts(selectedStatus || undefined, 0);
+      fetchPosts(
+        selectedStatus || undefined,
+        0,
+        undefined,
+        selectedAccountId || undefined
+      );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStatus]);
@@ -229,13 +232,18 @@ export const PostsList: React.FC = () => {
       try {
         await bulkDelete(ids);
         setSelectedPosts(new Set());
-        await fetchPosts(selectedStatus || undefined, page);
+        await fetchPosts(
+          selectedStatus || undefined,
+          page,
+          undefined,
+          selectedAccountId || undefined
+        );
       } catch (error) {
         console.error("Failed to delete posts:", error);
         alert("Failed to delete posts. Please try again.");
       }
     },
-    [bulkDelete, fetchPosts, selectedStatus, page]
+    [bulkDelete, fetchPosts, selectedStatus, page, selectedAccountId]
   );
 
   const handleBulkSchedule = useCallback(
@@ -245,13 +253,18 @@ export const PostsList: React.FC = () => {
           await schedulePost(id, config);
         }
         setSelectedPosts(new Set());
-        await fetchPosts(selectedStatus || undefined, page);
+        await fetchPosts(
+          selectedStatus || undefined,
+          page,
+          undefined,
+          selectedAccountId || undefined
+        );
       } catch (error) {
         console.error("Failed to schedule posts:", error);
         alert("Failed to schedule posts. Please try again.");
       }
     },
-    [schedulePost, fetchPosts, selectedStatus, page]
+    [schedulePost, fetchPosts, selectedStatus, page, selectedAccountId]
   );
 
   const handleBulkCancel = useCallback(
@@ -260,7 +273,12 @@ export const PostsList: React.FC = () => {
         const result = await postsApi.bulkCancel(ids);
         alert(`Successfully cancelled ${result.cancelled} scheduled post(s)`);
         setSelectedPosts(new Set());
-        await fetchPosts(selectedStatus || undefined, page);
+        await fetchPosts(
+          selectedStatus || undefined,
+          page,
+          undefined,
+          selectedAccountId || undefined
+        );
       } catch (error) {
         console.error("Failed to cancel schedules:", error);
         alert("Failed to cancel schedules. Please try again.");
@@ -294,7 +312,12 @@ export const PostsList: React.FC = () => {
 
         setSelectedPosts(new Set());
         setShowBulkSchedulerModal(false);
-        await fetchPosts(selectedStatus || undefined, page);
+        await fetchPosts(
+          selectedStatus || undefined,
+          page,
+          undefined,
+          selectedAccountId || undefined
+        );
       } catch (error) {
         console.error("Failed to bulk schedule posts:", error);
         const errorMsg =
@@ -302,7 +325,7 @@ export const PostsList: React.FC = () => {
         alert(`Error: ${errorMsg}`);
       }
     },
-    [selectedPosts, fetchPosts, selectedStatus, page]
+    [selectedPosts, fetchPosts, selectedStatus, page, selectedAccountId]
   );
 
   // Handlers - Single Post Actions
@@ -312,13 +335,18 @@ export const PostsList: React.FC = () => {
 
       try {
         await deletePost(id);
-        await fetchPosts(selectedStatus || undefined, page);
+        await fetchPosts(
+          selectedStatus || undefined,
+          page,
+          undefined,
+          selectedAccountId || undefined
+        );
       } catch (error) {
         console.error("Failed to delete post:", error);
         alert("Failed to delete post. Please try again.");
       }
     },
-    [deletePost, fetchPosts, selectedStatus, page]
+    [deletePost, fetchPosts, selectedStatus, page, selectedAccountId]
   );
 
   const handlePublish = useCallback(
@@ -346,7 +374,12 @@ export const PostsList: React.FC = () => {
           const result = await postsApi.getPost(postId);
           if (result.status === "PUBLISHED" || result.status === "FAILED") {
             // Post is done processing, refresh the list
-            await fetchPosts(selectedStatus || undefined, page);
+            await fetchPosts(
+              selectedStatus || undefined,
+              page,
+              undefined,
+              selectedAccountId || undefined
+            );
             return;
           }
 
@@ -354,13 +387,18 @@ export const PostsList: React.FC = () => {
         }
 
         // Timeout - just refresh anyway
-        await fetchPosts(selectedStatus || undefined, page);
+        await fetchPosts(
+          selectedStatus || undefined,
+          page,
+          undefined,
+          selectedAccountId || undefined
+        );
       } catch (error) {
         console.error("Failed to publish:", error);
         alert("Failed to publish post. Please try again.");
       }
     },
-    [posts, publish, fetchPosts, selectedStatus, page]
+    [posts, publish, fetchPosts, selectedStatus, page, selectedAccountId]
   );
 
   const handleFixStuck = useCallback(
@@ -368,22 +406,32 @@ export const PostsList: React.FC = () => {
       try {
         await postsApi.fixStuckPost(postId);
         // Refresh the posts list
-        await fetchPosts(selectedStatus || undefined, page);
+        await fetchPosts(
+          selectedStatus || undefined,
+          page,
+          undefined,
+          selectedAccountId || undefined
+        );
         alert("Post fixed! Status updated.");
       } catch (error) {
         console.error("Failed to fix stuck post:", error);
         alert("Failed to fix stuck post. Please try again.");
       }
     },
-    [fetchPosts, selectedStatus, page]
+    [fetchPosts, selectedStatus, page, selectedAccountId]
   );
 
   const handlePostRecovered = useCallback(
     (_post: Post) => {
       // Refetch the list after recovery - the post parameter tells us which post was recovered
-      fetchPosts(selectedStatus || undefined, page);
+      fetchPosts(
+        selectedStatus || undefined,
+        page,
+        undefined,
+        selectedAccountId || undefined
+      );
     },
-    [fetchPosts, selectedStatus, page]
+    [fetchPosts, selectedStatus, page, selectedAccountId]
   );
 
   const handleSchedule = useCallback((postId: string) => {
@@ -411,7 +459,12 @@ export const PostsList: React.FC = () => {
         await schedulePost(schedulingPostId, config, [currentAccountId]);
         console.log(" PostsList: Schedule API success");
 
-        await fetchPosts(selectedStatus || undefined, page);
+        await fetchPosts(
+          selectedStatus || undefined,
+          page,
+          undefined,
+          selectedAccountId || undefined
+        );
         setShowSchedulerModal(false);
         setSchedulingPostId(null);
       } catch (error) {
@@ -433,13 +486,18 @@ export const PostsList: React.FC = () => {
     async (postId: string) => {
       try {
         await cancelSchedule(postId);
-        await fetchPosts(selectedStatus || undefined, page);
+        await fetchPosts(
+          selectedStatus || undefined,
+          page,
+          undefined,
+          selectedAccountId || undefined
+        );
       } catch (error) {
         console.error("Failed to cancel schedule:", error);
         alert("Failed to cancel schedule. Please try again.");
       }
     },
-    [cancelSchedule, fetchPosts, selectedStatus, page]
+    [cancelSchedule, fetchPosts, selectedStatus, page, selectedAccountId]
   );
 
   // Handlers - Edit Modal
@@ -448,16 +506,55 @@ export const PostsList: React.FC = () => {
     setShowEditModal(true);
   }, []);
 
+  // Handlers - Post Management
+  const handleNewPost = useCallback(async () => {
+    try {
+      // Create empty post associated with selected account
+      const newPostData: Partial<Post> = {
+        content: "",
+        postType: "TEXT",
+        imageUrls: [],
+        threadsAccountId: selectedAccountId || undefined,
+      };
+
+      const newPost = await createPost(newPostData);
+      setEditingPost(newPost);
+      setShowEditModal(true);
+    } catch (error) {
+      console.error("Failed to create new post:", error);
+      alert("Failed to create new post. Please try again.");
+    }
+  }, [createPost, selectedAccountId]);
+
   const handleSavePost = useCallback(
     async (updatedPost: Partial<Post>) => {
       if (!editingPost) return;
 
-      await updatePost(editingPost._id, updatedPost);
+      if (editingPost._id.startsWith("new-")) {
+        // New post - use createPost (it's already created, so update it)
+        await updatePost(editingPost._id, updatedPost);
+      } else {
+        // Existing post - update
+        await updatePost(editingPost._id, updatedPost);
+      }
+
       setShowEditModal(false);
       setEditingPost(null);
-      await fetchPosts(selectedStatus || undefined, page);
+      await fetchPosts(
+        selectedStatus || undefined,
+        page,
+        undefined,
+        selectedAccountId || undefined
+      );
     },
-    [editingPost, updatePost, fetchPosts, selectedStatus, page]
+    [
+      editingPost,
+      updatePost,
+      fetchPosts,
+      selectedStatus,
+      page,
+      selectedAccountId,
+    ]
   );
 
   const handleCloseEditModal = useCallback(() => {
@@ -468,7 +565,12 @@ export const PostsList: React.FC = () => {
   // Handlers - Pagination
   const handlePageChange = useCallback(
     (newPage: number) => {
-      fetchPosts(selectedStatus || undefined, newPage);
+      fetchPosts(
+        selectedStatus || undefined,
+        newPage,
+        undefined,
+        selectedAccountId || undefined
+      );
     },
     [fetchPosts, selectedStatus]
   );
@@ -477,9 +579,14 @@ export const PostsList: React.FC = () => {
     (newSize: number) => {
       setPageSize(newSize);
       setLimit(newSize);
-      fetchPosts(selectedStatus || undefined, 0, newSize);
+      fetchPosts(
+        selectedStatus || undefined,
+        0,
+        newSize,
+        selectedAccountId || undefined
+      );
     },
-    [fetchPosts, selectedStatus, setLimit]
+    [fetchPosts, selectedStatus, setLimit, selectedAccountId]
   );
 
   // Export functionality
@@ -522,15 +629,32 @@ export const PostsList: React.FC = () => {
               Manage your Threads posts ({total} total)
             </CardDescription>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={exportToCSV}
-            disabled={posts.length === 0}
-          >
-            <Download className="h-4 w-4 mr-2" />
-            Export
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={handleNewPost}
+              disabled={!selectedAccountId || credentials.length === 0}
+              title={
+                !selectedAccountId
+                  ? "Please select a specific account to create a new post"
+                  : credentials.length === 0
+                  ? "No accounts available"
+                  : "Create new post"
+              }
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              New Post
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={exportToCSV}
+              disabled={posts.length === 0}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export
+            </Button>
+          </div>
         </div>
 
         {/* Status Filter Tabs */}
@@ -553,13 +677,16 @@ export const PostsList: React.FC = () => {
           <div className="space-y-2">
             <label className="text-sm font-medium">Select Account</label>
             <Select
-              value={selectedAccountId || ""}
-              onValueChange={(id) => setSelectedAccount(id)}
+              value={selectedAccountId || "all-accounts"}
+              onValueChange={(id) =>
+                setSelectedAccount(id === "all-accounts" ? "" : id)
+              }
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select an account..." />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="all-accounts">All Accounts</SelectItem>
                 {credentials.map((cred) => (
                   <SelectItem key={cred.id} value={cred.id}>
                     {cred.accountName || cred.threadsUserId}{" "}
@@ -596,7 +723,16 @@ export const PostsList: React.FC = () => {
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {loading && page === 0 ? (
+        {credentials.length === 0 ? (
+          <div className="text-center py-12">
+            <div className="text-muted-foreground mb-4">
+              <p className="text-lg font-medium">No accounts available</p>
+              <p className="text-sm mt-2">
+                Add a Threads account in the Settings to manage your posts
+              </p>
+            </div>
+          </div>
+        ) : loading && page === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
             Loading posts...

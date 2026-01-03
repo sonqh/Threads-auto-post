@@ -27,6 +27,7 @@ export class PostService {
     postType?: string;
     skip?: number;
     limit?: number;
+    accountId?: string;
   }): Promise<{ posts: IPost[]; total: number }> {
     const query: Record<string, any> = {};
 
@@ -35,6 +36,9 @@ export class PostService {
     }
     if (filters?.postType) {
       query.postType = filters.postType;
+    }
+    if (filters?.accountId) {
+      query.threadsAccountId = filters.accountId;
     }
 
     const total = await Post.countDocuments(query);

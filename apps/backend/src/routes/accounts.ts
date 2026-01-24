@@ -67,9 +67,10 @@ accountsRouter.get("/", async (req: Request, res: Response) => {
 accountsRouter.get("/:id", async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id || (req as any).userId;
-    logger.debug(`Fetching account ${req.params.id} for user: ${userId}`);
+    const accountId = String(req.params.id);
+    logger.debug(`Fetching account ${accountId} for user: ${userId}`);
 
-    const account = await credentialService.getAccount(req.params.id, userId);
+    const account = await credentialService.getAccount(accountId, userId);
 
     res.json({
       success: true,
@@ -209,12 +210,13 @@ accountsRouter.patch("/:id", async (req: Request, res: Response) => {
 accountsRouter.patch("/:id/default", async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id || (req as any).userId;
-    logger.debug(
-      `Setting account ${req.params.id} as default for user: ${userId}`
+    const accountId = String(req.params.id);
+    logger.info(
+      `Setting account ${accountId} as default for user: ${userId}`
     );
 
     const account = await credentialService.setDefaultAccount(
-      req.params.id,
+      accountId,
       userId
     );
 
@@ -248,13 +250,14 @@ accountsRouter.post(
   async (req: Request, res: Response) => {
     try {
       const userId = (req as any).user?.id || (req as any).userId;
-      logger.info(`Manually refreshing token for account ${req.params.id}`);
+      const accountId = String(req.params.id);
+      logger.info(`Manually refreshing token for account ${accountId}`);
 
       // Verify user owns this account
-      await credentialService.getAccount(req.params.id, userId);
+      await credentialService.getAccount(accountId, userId);
 
       const account = await credentialService.refreshAccountToken(
-        req.params.id
+        accountId
       );
 
       res.json({
@@ -287,9 +290,10 @@ accountsRouter.post(
 accountsRouter.delete("/:id", async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id || (req as any).userId;
-    logger.info(`Deleting account ${req.params.id} for user: ${userId}`);
+    const accountId = String(req.params.id);
+    logger.info(`Deleting account ${accountId} for user: ${userId}`);
 
-    await credentialService.deleteAccount(req.params.id, userId);
+    await credentialService.deleteAccount(accountId, userId);
 
     res.json({
       success: true,
@@ -362,8 +366,8 @@ accountsRouter.get(
         isExpired: account.expiresAt ? account.expiresAt < new Date() : false,
         hoursUntilExpiration: account.expiresAt
           ? Math.round(
-              (account.expiresAt.getTime() - Date.now()) / (1000 * 60 * 60)
-            )
+            (account.expiresAt.getTime() - Date.now()) / (1000 * 60 * 60)
+          )
           : null,
         lastError: account.lastError || null,
       }));

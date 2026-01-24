@@ -3,14 +3,15 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { connectDatabase } from '../src/config/database.js';
+import axios from 'axios';
+
 import {
     Post,
     PostType,
     PostStatus,
     CommentStatus,
     generateContentHash,
-} from '../src/models/Post.js';
+} from '../models/Post.js';
 
 // Setup paths
 const __filename = fileURLToPath(import.meta.url);
@@ -20,6 +21,24 @@ const __dirname = path.dirname(__filename);
 const EXPORT_DIR = path.join(__dirname, 'instagram-museinrose102-2026-01-04-JzumtgsY');
 const THREADS_JSON = path.join(EXPORT_DIR, 'your_instagram_activity/threads/threads_and_replies.json');
 const MEDIA_BASE = path.join(EXPORT_DIR, 'media');
+const PROJECT_ROOT = path.join(__dirname, '../../..');
+
+// Import options - customize as needed
+const IMPORT_OPTIONS = {
+    storageType: 'relative', // 'relative' or 'absolute' - how to store media paths in DB
+    uploadToImgBB: true,    // Set to true to upload images to ImgBB (requires IMGBB_API_KEY)
+    linkToAccount: false,      // Set to true to link imported posts to a specific account
+    linkedAccountId: undefined, // Which account to link to (if linkToAccount is true)
+    userId: undefined,         // Optional: set to track which user imported these posts
+    skipDuplicates: true,      // Skip posts that already exist
+};
+
+// ImgBB configuration
+const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
+const IMGBB_API_URL = 'https://api.imgbb.com/1/upload';
+
+// Image upload tracking - maps uploaded URL to original context
+const imageUploadMappings = [];
 
 // Statistics tracking
 const stats = {
@@ -29,6 +48,8 @@ const stats = {
     failed: 0,
     mediaResolved: 0,
     mediaFailed: 0,
+    imagesUploaded: 0,
+    uploadsFailed: 0,
     startTime: null,
     endTime: null,
 };
@@ -48,6 +69,85 @@ const colors = {
 
 function log(message, color = 'reset') {
     console.log(`${colors[color]}${message}${colors.reset}`);
+}
+
+/**
+ * Sanitize text to ensure valid UTF-8 and properly handle Vietnamese characters
+ * Supports all Vietnamese diacritics: á à ả ã ạ ă ắ ằ ẳ ẵ ặ â ấ ầ ẩ ẫ ậ
+ *                                    đ é è ẻ ẽ ẹ ê ế ề ể ễ ệ í ì ỉ ĩ ị
+ *                                    ó ò ỏ õ ọ ô ố ồ ổ ỗ ộ ơ ớ ờ ở ỡ ợ
+ *                                    ú ù ủ ũ ụ ư ứ ừ ử ữ ự ý ỳ ỷ ỹ ỵ
+ */
+function sanitizeVietnameseText(text) {
+    if (!text) return '';
+
+    // Normalize Unicode using NFC (Canonical Decomposition followed by Canonical Composition)
+    // This ensures Vietnamese characters are stored consistently
+    let sanitized = text.normalize('NFC');
+
+    // Remove only truly problematic characters (null bytes, control chars) but keep all printable Unicode
+    // Preserve Vietnamese characters, emojis, and other Unicode symbols
+    sanitized = sanitized.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+
+    return sanitized.trim();
+}
+
+/**
+ * Upload image to ImgBB and return public URL
+ * Tracks relationship between uploaded image and post
+ */
+async function uploadImageToImgBB(imagePath, postContext) {
+    try {
+        if (!IMGBB_API_KEY) {
+            throw new Error('IMGBB_API_KEY not configured');
+        }
+
+        // Read image file
+        if (!fs.existsSync(imagePath)) {
+            throw new Error(`Image not found: ${imagePath}`);
+        }
+
+        const imageBuffer = fs.readFileSync(imagePath);
+        const base64Image = imageBuffer.toString('base64');
+
+        // Upload to ImgBB
+        const formData = new URLSearchParams();
+        formData.append('key', IMGBB_API_KEY);
+        formData.append('image', base64Image);
+
+        const response = await axios.post(IMGBB_API_URL, formData, {
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            timeout: 60000,
+        });
+
+        if (!response.data.success) {
+            throw new Error(`ImgBB upload failed: ${JSON.stringify(response.data)}`);
+        }
+
+        const result = response.data.data;
+        const uploadedUrl = result.url;
+
+        // Track mapping between uploaded URL and post
+        imageUploadMappings.push({
+            imageUrl: uploadedUrl,
+            originalPath: imagePath,
+            postId: postContext.threadsPostId,
+            postContent: postContext.content ? postContext.content.substring(0, 100) : '',
+            publishedAt: postContext.publishedAt,
+            uploadedAt: new Date().toISOString(),
+            size: result.size,
+            dimensions: `${result.width}x${result.height}`,
+        });
+
+        stats.imagesUploaded++;
+        return uploadedUrl;
+    } catch (error) {
+        stats.uploadsFailed++;
+        log(`  ⚠️ Failed to upload image: ${error.message}`, 'yellow');
+        return null; // Return null to use local path as fallback
+    }
 }
 
 /**
@@ -121,23 +221,25 @@ function extractPostId(uri) {
 
 /**
  * Categorize media items into images and videos
+ * Handles path storage type (relative vs absolute)
+ * Optionally uploads images to ImgBB with post context tracking
  */
-function categorizeMedia(mediaItems, baseDir) {
+async function categorizeMedia(mediaItems, baseDir, postContext) {
     const images = [];
     const videos = [];
     let failedCount = 0;
 
-    mediaItems.forEach((item) => {
+    for (const item of mediaItems) {
         if (!item.uri || item.uri.trim() === '') {
             return;
         }
 
-        const resolvedPath = resolveMediaPath(item.uri, baseDir);
+        const absolutePath = resolveMediaPath(item.uri, baseDir);
 
-        if (!resolvedPath) {
+        if (!absolutePath) {
             failedCount++;
             log(
-                `⚠️  Media not found: ${item.uri}`,
+                `Media not found: ${item.uri}`,
                 'yellow'
             );
             return;
@@ -145,13 +247,37 @@ function categorizeMedia(mediaItems, baseDir) {
 
         stats.mediaResolved++;
 
-        // Determine media type
-        if (/\.(mp4|mov|avi|mkv)$/i.test(item.uri)) {
-            videos.push(resolvedPath);
-        } else if (/\.(jpg|jpeg|png|webp|gif)$/i.test(item.uri)) {
-            images.push(resolvedPath);
+        // For images: upload to ImgBB if enabled, otherwise use local path
+        if (/\.(jpg|jpeg|png|webp|gif)$/i.test(item.uri)) {
+            let finalPath = absolutePath;
+
+            // Upload to ImgBB if enabled
+            if (IMPORT_OPTIONS.uploadToImgBB && IMGBB_API_KEY) {
+                const uploadedUrl = await uploadImageToImgBB(absolutePath, postContext);
+                if (uploadedUrl) {
+                    finalPath = uploadedUrl; // Use ImgBB URL
+                } else {
+                    // Fallback to local path if upload fails
+                    finalPath = IMPORT_OPTIONS.storageType === 'relative'
+                        ? path.relative(PROJECT_ROOT, absolutePath)
+                        : absolutePath;
+                }
+            } else {
+                // Use local path based on storage configuration
+                finalPath = IMPORT_OPTIONS.storageType === 'relative'
+                    ? path.relative(PROJECT_ROOT, absolutePath)
+                    : absolutePath;
+            }
+
+            images.push(finalPath);
+        } else if (/\.(mp4|mov|avi|mkv)$/i.test(item.uri)) {
+            // Videos: always use local path (Threads API requires public URLs for videos)
+            const storagePath = IMPORT_OPTIONS.storageType === 'relative'
+                ? path.relative(PROJECT_ROOT, absolutePath)
+                : absolutePath;
+            videos.push(storagePath);
         }
-    });
+    }
 
     stats.mediaFailed += failedCount;
     return { images, videos };
@@ -159,6 +285,7 @@ function categorizeMedia(mediaItems, baseDir) {
 
 /**
  * Build a Post document from raw thread data
+ * Handles Vietnamese characters and uploads images to ImgBB if enabled
  */
 async function buildPostDocument(threadData, baseDir) {
     const {
@@ -167,35 +294,45 @@ async function buildPostDocument(threadData, baseDir) {
         media = [],
     } = threadData;
 
+    // Sanitize Vietnamese content
+    const sanitizedTitle = sanitizeVietnameseText(title);
+
     // Skip empty posts
-    const hasContent = title && title.trim().length > 0;
+    const hasContent = sanitizedTitle && sanitizedTitle.length > 0;
     const hasMedia = media.filter((m) => m.uri && m.uri.trim()).length > 0;
 
     if (!hasContent && !hasMedia) {
         return null;
     }
 
-    // Resolve media files
-    const { images, videos } = categorizeMedia(media, baseDir);
-
-    // Determine post type
-    const postType = determinePostType(media);
-
-    // Extract post ID from first media item
+    // Extract post ID early for context
     let threadsPostId = null;
     if (media.length > 0 && media[0].uri) {
         threadsPostId = extractPostId(media[0].uri);
     }
 
-    // Generate content hash for duplicate detection
-    const contentHash = generateContentHash(title || '', images, videos[0]);
-
     // Convert Unix timestamp (seconds) to milliseconds
     const publishedAt = new Date(creation_timestamp * 1000);
 
-    // Create Post document
+    // Create post context for image upload tracking
+    const postContext = {
+        threadsPostId,
+        content: sanitizedTitle,
+        publishedAt,
+    };
+
+    // Resolve media files (with optional ImgBB upload)
+    const { images, videos } = await categorizeMedia(media, baseDir, postContext);
+
+    // Determine post type
+    const postType = determinePostType(media);
+
+    // Generate content hash for duplicate detection
+    const contentHash = generateContentHash(sanitizedTitle || '', images, videos[0]);
+
+    // Create Post document with sanitized Vietnamese text
     const post = new Post({
-        content: title || '[Media-only post]',
+        content: sanitizedTitle || '[Media-only post]',
         status: PostStatus.PUBLISHED,
         postType,
         imageUrls: images,
@@ -204,7 +341,14 @@ async function buildPostDocument(threadData, baseDir) {
         threadsPostId,
         contentHash,
         commentStatus: CommentStatus.NONE,
-        // Optional fields for tracking
+        // Account linking - only if explicitly configured
+        ...(IMPORT_OPTIONS.linkToAccount && {
+            threadsAccountId: IMPORT_OPTIONS.linkedAccountId,
+        }),
+        ...(IMPORT_OPTIONS.userId && {
+            userId: IMPORT_OPTIONS.userId,
+        }),
+        // Tracking metadata
         topic: 'Imported from Threads Export',
     });
 
@@ -291,34 +435,54 @@ async function main() {
         stats.startTime = Date.now();
 
         // Validate paths
-        log('\n🔍 Validating paths...', 'cyan');
+        log('\nValidating paths...', 'cyan');
         if (!fs.existsSync(THREADS_JSON)) {
             throw new Error(`threads_and_replies.json not found at ${THREADS_JSON}`);
         }
-        log('✅ threads_and_replies.json found', 'green');
+        log('threads_and_replies.json found', 'green');
 
         if (!fs.existsSync(MEDIA_BASE)) {
-            log('⚠️  Media folder not found - continuing with text-only posts', 'yellow');
+            log('Media folder not found - continuing with text-only posts', 'yellow');
         } else {
-            log('✅ Media folder found', 'green');
+            log('Media folder found', 'green');
         }
 
         // Connect to database
-        log('\n🔌 Connecting to MongoDB...', 'cyan');
+        log('\nConnecting to MongoDB...', 'cyan');
         await connectDatabase();
-        log('✅ Connected to MongoDB', 'green');
+        log('Connected to MongoDB', 'green');
 
-        // Read threads data
-        log('\n📖 Reading threads data...', 'cyan');
-        const jsonContent = fs.readFileSync(THREADS_JSON, 'utf8');
-        const data = JSON.parse(jsonContent);
+        // Log import configuration
+        log('\nImport Configuration:', 'cyan');
+        log(`  Storage Type:      ${IMPORT_OPTIONS.storageType}`, 'dim');
+        log(`  Upload to ImgBB:   ${IMPORT_OPTIONS.uploadToImgBB}`, 'dim');
+        if (IMPORT_OPTIONS.uploadToImgBB) {
+            log(`  ImgBB API Key:     ${IMGBB_API_KEY ? '✓ Configured' : '✗ Missing'}`, IMGBB_API_KEY ? 'green' : 'red');
+        }
+        log(`  Link to Account:   ${IMPORT_OPTIONS.linkToAccount}`, 'dim');
+        log(`  Skip Duplicates:   ${IMPORT_OPTIONS.skipDuplicates}`, 'dim');
+
+        // Read threads data with explicit UTF-8 encoding
+        log('\nReading threads data...', 'cyan');
+        const jsonContent = fs.readFileSync(THREADS_JSON, { encoding: 'utf8' });
+
+        let data;
+        try {
+            data = JSON.parse(jsonContent);
+        } catch (parseError) {
+            log('\n❌ JSON parsing failed', 'red');
+            log('Error: ' + parseError.message, 'red');
+            log('\nFirst 100 chars of file:', 'yellow');
+            console.log(jsonContent.substring(0, 100));
+            throw new Error('Failed to parse JSON. Ensure file is UTF-8 encoded.');
+        }
         const posts = data.text_post_app_text_posts || [];
 
         stats.total = posts.length;
-        log(`✅ Found ${stats.total} posts to import`, 'green');
+        log(`Found ${stats.total} posts to import`, 'green');
 
         // Import posts
-        log('\n🚀 Starting import process...', 'cyan');
+        log('\nStarting import process...', 'cyan');
         log(`Processing ${stats.total} posts\n`, 'bright');
 
         for (let index = 0; index < posts.length; index++) {
@@ -350,7 +514,7 @@ async function main() {
                 stats.failed++;
                 // Log detailed error for first few failures
                 if (stats.failed <= 5) {
-                    log(`\n❌ Error at post ${index + 1}: ${error.message}`, 'red');
+                    log(`\nError at post ${index + 1}: ${error.message}`, 'red');
                 }
             }
         }
@@ -361,24 +525,38 @@ async function main() {
         const elapsedTime = formatTime(elapsedMs);
 
         log('\n\n' + '='.repeat(70), 'bright');
-        log('📊 IMPORT SUMMARY', 'bright');
+        log('IMPORT SUMMARY', 'bright');
         log('='.repeat(70), 'bright');
         log(`Total Posts:     ${stats.total}`, 'cyan');
-        log(`✅ Imported:      ${stats.imported} (${(stats.imported / stats.total * 100).toFixed(1)}%)`, 'green');
-        log(`⏭️  Skipped:       ${stats.skipped} (${(stats.skipped / stats.total * 100).toFixed(1)}%)`, 'yellow');
-        log(`❌ Failed:        ${stats.failed} (${(stats.failed / stats.total * 100).toFixed(1)}%)`, 'red');
+        log(`Imported:        ${stats.imported} (${(stats.imported / stats.total * 100).toFixed(1)}%)`, 'green');
+        log(`Skipped:         ${stats.skipped} (${(stats.skipped / stats.total * 100).toFixed(1)}%)`, 'yellow');
+        log(`Failed:          ${stats.failed} (${(stats.failed / stats.total * 100).toFixed(1)}%)`, 'red');
         log('', 'reset');
         log(`Media Resolved:  ${stats.mediaResolved}`, 'blue');
         log(`Media Failed:    ${stats.mediaFailed}`, 'red');
+        if (IMPORT_OPTIONS.uploadToImgBB) {
+            log(`Images Uploaded: ${stats.imagesUploaded}`, 'green');
+            log(`Upload Failed:   ${stats.uploadsFailed}`, 'red');
+        }
         log('', 'reset');
-        log(`⏱️  Elapsed Time:  ${elapsedTime}`, 'cyan');
-        log(`⚡ Speed:         ${Math.round(stats.total / (elapsedMs / 1000))} posts/sec`, 'magenta');
+        log(`Elapsed Time:    ${elapsedTime}`, 'cyan');
+        log(`Speed:           ${Math.round(stats.total / (elapsedMs / 1000))} posts/sec`, 'magenta');
         log('='.repeat(70), 'bright');
+
+        // Save image upload mappings if any
+        if (imageUploadMappings.length > 0) {
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const mappingFile = path.join(__dirname, `imgbb-mappings-${timestamp}.json`);
+            fs.writeFileSync(mappingFile, JSON.stringify(imageUploadMappings, null, 2), 'utf8');
+            log('\n📋 Image-Post Mappings:', 'cyan');
+            log(`   Saved ${imageUploadMappings.length} mappings to:`, 'green');
+            log(`   ${mappingFile}`, 'dim');
+        }
 
         // Success exit
         process.exit(stats.failed === 0 ? 0 : 1);
     } catch (error) {
-        log('\n\n❌ FATAL ERROR', 'red');
+        log('\n\nFATAL ERROR', 'red');
         log(error.message, 'red');
         log('\nStack trace:', 'dim');
         console.error(error);

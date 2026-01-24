@@ -5,13 +5,11 @@ import {
   X,
   Plus,
   Link as LinkIcon,
-  ExternalLink,
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { TagInput } from "./TagInput";
-import { validateLink, validateLinks } from "@/lib/linkValidation";
 import type { StoredCredential } from "@/hooks/useCredentials";
 
 interface EditPostModalProps {
@@ -45,7 +43,7 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({
     post.threadsAccountId || ""
   );
 
-  // Link management - validate URLs on load
+  // Link management - validate file paths and URLs on load
   const [links, setLinks] = useState<string[]>(
     sanitizeImageUrls(post.imageUrls)
   );
@@ -55,32 +53,29 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Validate all links
+  // Validate all links - accept both file paths and URLs
   const linkValidation = useMemo(() => {
-    return validateLinks(links);
+    const errors = links.filter(link => !link.trim()).length;
+    return { valid: errors === 0 };
   }, [links]);
 
   const handleValidateLinkUrl = (index: number, url: string) => {
-    const validation = validateLink(url);
     const newErrors = { ...linkErrors };
 
-    if (!validation.valid && validation.error) {
-      newErrors[index] = validation.error;
+    // Allow both file paths and URLs
+    if (!url.trim()) {
+      newErrors[index] = "Path is required";
     } else {
+      // File path or URL - just check if it's not empty
       delete newErrors[index];
     }
+
     setLinkErrors(newErrors);
   };
 
   const handleAddLink = () => {
     if (!newLinkUrl.trim()) {
-      setError("Link URL is required");
-      return;
-    }
-
-    const validation = validateLink(newLinkUrl);
-    if (!validation.valid) {
-      setError(validation.error || "Invalid URL");
+      setError("File path or URL is required");
       return;
     }
 
@@ -248,35 +243,32 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({
             </select>
           </div>
 
-          {/* Image Links */}
+          {/* Images */}
           <div>
             <label className="block text-sm font-medium mb-3">
               <div className="flex items-center gap-2">
                 <LinkIcon className="h-4 w-4" />
-                Image Links ({links.length})
+                Images ({links.length})
               </div>
             </label>
 
-            {/* Links Summary */}
+            {/* Images Summary */}
             {links.length > 0 && (
               <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm font-medium text-blue-900 mb-2">
-                  📋 Links Overview:
+                  📋 Images Overview:
                 </p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
                   {links.map((link, index) => {
                     const isValid = !linkErrors[index];
+                    const filename = link.split('/').pop() || link;
                     return (
-                      <a
+                      <div
                         key={index}
-                        href={link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={`flex items-center gap-2 px-2 py-1 text-xs rounded transition-colors truncate ${
-                          isValid
-                            ? "bg-green-100 text-green-700 hover:bg-green-200"
-                            : "bg-red-100 text-red-700 hover:bg-red-200"
-                        }`}
+                        className={`flex items-center gap-2 px-2 py-1 text-xs rounded transition-colors truncate ${isValid
+                          ? "bg-green-100 text-green-700"
+                          : "bg-red-100 text-red-700"
+                          }`}
                         title={link}
                       >
                         {isValid ? (
@@ -284,31 +276,29 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({
                         ) : (
                           <AlertCircle className="h-3 w-3 flex-shrink-0" />
                         )}
-                        <span className="truncate">Link {index + 1}</span>
-                        <ExternalLink className="h-3 w-3 flex-shrink-0" />
-                      </a>
+                        <span className="truncate">Image {index + 1}: {filename}</span>
+                      </div>
                     );
                   })}
                 </div>
               </div>
             )}
 
-            {/* Existing Links - Detailed View */}
+            {/* Existing Images - Detailed View */}
             <div className="space-y-2 mb-4">
               {links.map((link, index) => (
                 <div
                   key={index}
-                  className={`p-3 border rounded-lg transition-colors ${
-                    linkErrors[index]
-                      ? "bg-red-50 border-red-200"
-                      : "bg-green-50 border-green-200"
-                  }`}
+                  className={`p-3 border rounded-lg transition-colors ${linkErrors[index]
+                    ? "bg-red-50 border-red-200"
+                    : "bg-green-50 border-green-200"
+                    }`}
                 >
-                  {/* Link Status Badge */}
+                  {/* Image Status Badge */}
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-medium px-2 py-1 rounded-full bg-gray-200 text-gray-700">
-                        Link {index + 1}
+                        Image {index + 1}
                       </span>
                       {!linkErrors[index] ? (
                         <span className="flex items-center gap-1 text-xs text-green-700 font-medium">
@@ -332,20 +322,19 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({
                     </Button>
                   </div>
 
-                  {/* Link URL Input */}
+                  {/* Image Path Input */}
                   <div className="space-y-1">
                     <input
-                      type="url"
+                      type="text"
                       value={link}
                       onChange={(e) =>
                         handleUpdateLinkUrl(index, e.target.value)
                       }
-                      className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:border-transparent font-mono text-xs ${
-                        linkErrors[index]
-                          ? "border-red-300 focus:ring-red-500 bg-red-50"
-                          : "border-green-300 focus:ring-green-500 bg-green-50"
-                      }`}
-                      placeholder="https://example.com/image.jpg"
+                      className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:border-transparent font-mono text-xs ${linkErrors[index]
+                        ? "border-red-300 focus:ring-red-500 bg-red-50"
+                        : "border-green-300 focus:ring-green-500 bg-green-50"
+                        }`}
+                      placeholder="/path/to/image.webp or https://example.com/image.jpg"
                     />
                   </div>
 
@@ -360,7 +349,7 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({
                     <div className="mt-2 flex items-start gap-2 text-green-700">
                       <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
                       <span className="text-xs">
-                        URL is valid and accessible
+                        {link.startsWith('/') ? 'Local file path' : 'URL'} is valid
                       </span>
                     </div>
                   )}
@@ -368,17 +357,17 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({
               ))}
             </div>
 
-            {/* Add New Link */}
+            {/* Add New Image */}
             <div className="p-3 border-2 border-dashed border-gray-300 rounded-lg space-y-2">
               <div>
                 <label className="text-xs font-medium text-gray-600 block mb-1">
-                  Add New Link
+                  Add New Image
                 </label>
                 <input
-                  type="url"
+                  type="text"
                   value={newLinkUrl}
                   onChange={(e) => setNewLinkUrl(e.target.value)}
-                  placeholder="https://example.com/image.jpg"
+                  placeholder="/absolute/path/to/image.webp or https://example.com/image.jpg"
                   className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && newLinkUrl.trim()) {
@@ -396,7 +385,7 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({
                 type="button"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Add Link
+                Add Image
               </Button>
             </div>
           </div>

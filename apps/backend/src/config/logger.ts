@@ -1,7 +1,10 @@
 import winston from "winston";
 import chalk from "chalk";
 
-// Custom format with colors
+// Track performance metrics
+const performanceMetrics = new Map<string, { startTime: number; label: string }>();
+
+// Custom format with colors and improved readability
 const coloredFormat = winston.format.printf(
   ({ level, message, timestamp, ...metadata }) => {
     let coloredLevel = level;
@@ -24,10 +27,13 @@ const coloredFormat = winston.format.printf(
     }
 
     const time = chalk.dim(timestamp);
-    const metaStr =
-      Object.keys(metadata).length > 0
-        ? "\n" + JSON.stringify(metadata, null, 2)
-        : "";
+
+    // Format metadata with better indentation and structure
+    let metaStr = "";
+    if (Object.keys(metadata).length > 0) {
+      const metaLines = JSON.stringify(metadata, null, 2).split("\n");
+      metaStr = "\n" + metaLines.map(line => `  ${line}`).join("\n");
+    }
 
     return `${time} [${coloredLevel}] ${message}${metaStr}`;
   }
@@ -68,26 +74,26 @@ export const logger = winston.createLogger({
   ],
 });
 
-// Helper functions with emojis
+// Helper functions with emojis and enhanced capabilities
 export const log = {
   success: (message: string, meta?: any) => {
-    logger.info(chalk.green(` ${message}`), meta);
+    logger.info(chalk.green(`✅ ${message}`), meta);
   },
   error: (message: string, error?: any) => {
     if (error instanceof Error) {
-      logger.error(chalk.red(`${message}`), {
+      logger.error(chalk.red(`❌ ${message}`), {
         error: error.message,
         stack: error.stack,
       });
     } else {
-      logger.error(chalk.red(`${message}`), error);
+      logger.error(chalk.red(`❌ ${message}`), error);
     }
   },
   warn: (message: string, meta?: any) => {
-    logger.warn(chalk.yellow(`${message}`), meta);
+    logger.warn(chalk.yellow(`⚠️  ${message}`), meta);
   },
   info: (message: string, meta?: any) => {
-    logger.info(chalk.blue(`${message}`), meta);
+    logger.info(chalk.blue(`ℹ️  ${message}`), meta);
   },
   debug: (message: string, meta?: any) => {
     logger.debug(chalk.gray(`🔍 ${message}`), meta);
@@ -95,8 +101,7 @@ export const log = {
   api: (method: string, path: string, status?: number) => {
     const statusColor = status && status < 400 ? chalk.green : chalk.red;
     logger.info(
-      `${chalk.magenta("API")} ${chalk.bold(method)} ${path} ${
-        status ? statusColor(`[${status}]`) : ""
+      `${chalk.magenta("API")} ${chalk.bold(method)} ${path} ${status ? statusColor(`[${status}]`) : ""
       }`
     );
   },
@@ -104,9 +109,53 @@ export const log = {
     logger.info(chalk.cyan(`🧵 ${message}`), meta);
   },
   queue: (message: string, meta?: any) => {
-    logger.info(chalk.magenta(`${message}`), meta);
+    logger.info(chalk.magenta(`📋 ${message}`), meta);
   },
   schedule: (message: string, meta?: any) => {
     logger.info(chalk.blue(`⏰ ${message}`), meta);
+  },
+
+  // Performance tracking
+  startTimer: (label: string): string => {
+    const timerId = `timer_${Date.now()}_${Math.random()}`;
+    performanceMetrics.set(timerId, { startTime: Date.now(), label });
+    logger.debug(chalk.cyan(`⏱️  Started: ${label}`));
+    return timerId;
+  },
+
+  endTimer: (timerId: string, meta?: any) => {
+    const metric = performanceMetrics.get(timerId);
+    if (metric) {
+      const duration = Date.now() - metric.startTime;
+      const color = duration > 5000 ? chalk.yellow : chalk.green;
+      logger.info(
+        color(`✓ ${metric.label} completed in ${duration}ms`),
+        meta
+      );
+      performanceMetrics.delete(timerId);
+      return duration;
+    } else {
+      logger.warn(`Timer ${timerId} not found`);
+      return 0;
+    }
+  },
+
+  // Structured logging for common patterns
+  request: (method: string, path: string, meta?: any) => {
+    logger.info(chalk.magenta(`→ ${method} ${path}`), meta);
+  },
+
+  response: (status: number, meta?: any) => {
+    const color = status < 400 ? chalk.green : status < 500 ? chalk.yellow : chalk.red;
+    logger.info(color(`← [${status}]`), meta);
+  },
+
+  divider: (title?: string) => {
+    const line = "─".repeat(60);
+    logger.info(chalk.dim(title ? `${line} ${title} ${line}` : line));
+  },
+
+  section: (title: string) => {
+    logger.info(chalk.bold.cyan(`\n${"=".repeat(20)} ${title} ${"=".repeat(20)}\n`));
   },
 };

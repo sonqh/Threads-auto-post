@@ -1,5 +1,7 @@
 import { Worker } from "bullmq";
 import dotenv from "dotenv";
+import path from "path";
+import fs from "fs";
 import { connectDatabase } from "./config/database.js";
 import { createRedisConnection } from "./config/redis.js";
 import {
@@ -17,6 +19,41 @@ import { postQueue } from "./queue/postQueue.js";
 import { log } from "./config/logger.js";
 
 dotenv.config();
+
+/**
+ * Resolve media paths from relative to absolute if needed
+ * Handles both relative paths (from import script) and absolute paths
+ * Also handles URLs (http/https) by passing them through unchanged
+ * @param mediaUrls Array of media paths (relative, absolute, or URLs)
+ * @param baseDir Base directory to resolve relative paths from (default: project root)
+ * @returns Array of resolved paths (absolute paths or URLs)
+ */
+function resolveMediaPaths(
+  mediaUrls: string[],
+  baseDir: string = process.cwd()
+): string[] {
+  return mediaUrls.map((urlPath) => {
+    // If it's already a URL (http/https), return as-is (from ImgBB upload)
+    if (urlPath.startsWith('http://') || urlPath.startsWith('https://')) {
+      return urlPath;
+    }
+
+    // If already absolute path, return as-is
+    if (path.isAbsolute(urlPath)) {
+      return urlPath;
+    }
+
+    // If relative, resolve from base directory
+    const resolved = path.resolve(baseDir, urlPath);
+
+    // Verify file exists, log warning if not
+    if (!fs.existsSync(resolved)) {
+      log.warn(`Media file not found: ${resolved} (from relative path: ${urlPath})`);
+    }
+
+    return resolved;
+  });
+}
 
 const connection = createRedisConnection();
 const threadsService = new ThreadsService();
@@ -209,11 +246,22 @@ const worker = new Worker(
             ? post.videoUrl
             : undefined;
 
+        // ===== Step 7b: Resolve relative paths to absolute for Threads API =====
+        const resolvedMediaUrls = mediaUrls.length > 0
+          ? resolveMediaPaths(mediaUrls)
+          : [];
+
+        const resolvedVideoUrl = videoUrl
+          ? resolveMediaPaths([videoUrl])[0]
+          : undefined;
+
+        log.info(`Resolved ${resolvedMediaUrls.length} images and ${resolvedVideoUrl ? "1 video" : "0 videos"}`);
+
         // ===== Step 8: Publish to Threads (post only, handle comment separately) =====
         const result = await adapter.publishPost({
           content: post.content,
-          mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
-          videoUrl,
+          mediaUrls: resolvedMediaUrls.length > 0 ? resolvedMediaUrls : undefined,
+          videoUrl: resolvedVideoUrl,
           comment: post.comment,
           skipComment: false, // Let adapter handle comment, but track result separately
         });

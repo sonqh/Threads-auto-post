@@ -41,7 +41,7 @@ services:
     container_name: threads-backend
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      - "3002:3001"
     environment:
       - NODE_ENV=production
       - PORT=3001

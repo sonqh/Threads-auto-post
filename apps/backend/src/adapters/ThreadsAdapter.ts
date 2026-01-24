@@ -1,4 +1,6 @@
 import axios from "axios";
+import fs from "fs";
+import path from "path";
 import {
   BasePlatformAdapter,
   PublishPostData,
@@ -46,11 +48,27 @@ export class ThreadsAdapter extends BasePlatformAdapter {
   }
 
   /**
-   * Extract URLs from text
+   * Validate media URL for Threads API
+   * Threads API requires all media (images and videos) to be publicly accessible URLs
+   * Local file paths must be uploaded to a CDN (ImgBB, Cloudinary, etc.) first
    */
-  private extractUrls(text: string): string[] {
-    const urlRegex = /https?:\/\/[^\s]+/g;
-    return text.match(urlRegex) || [];
+  private async resolveMediaUrl(mediaPath: string, postContext?: { postId?: string; postContent?: string }): Promise<string> {
+    // If it's already a URL, return it
+    if (mediaPath.startsWith('http://') || mediaPath.startsWith('https://')) {
+      log.debug('Using remote URL for media', {
+        url: mediaPath.substring(0, 50) + '...',
+      });
+      return mediaPath;
+    }
+
+    // Local file paths or data URIs are not supported directly
+    // User must upload to CDN first and use the URL
+    throw new Error(
+      `Threads API requires publicly accessible URLs for all media. ` +
+      `Local file path "${path.basename(mediaPath)}" cannot be used directly. ` +
+      `Please upload the file to a CDN or cloud storage (e.g., ImgBB, Cloudinary, AWS S3) ` +
+      `and use the public URL instead.`
+    );
   }
 
   /**
@@ -178,8 +196,17 @@ export class ThreadsAdapter extends BasePlatformAdapter {
         errorMessage: error.message,
       });
 
-      // Enhanced error logging with full details
+      // Enhanced error logging with sanitized details
       if (axios.isAxiosError(error)) {
+        // Sanitize request data to avoid logging sensitive info (tokens, base64 data)
+        const sanitizedData = error.config?.data ? {
+          media_type: error.config.data.media_type,
+          text_length: error.config.data.text?.length,
+          has_image_url: !!error.config.data.image_url,
+          has_video_url: !!error.config.data.video_url,
+          children_count: error.config.data.children?.length,
+        } : undefined;
+
         log.error("🔴 Threads API error", {
           status: error.response?.status,
           statusText: error.response?.statusText,
@@ -190,7 +217,7 @@ export class ThreadsAdapter extends BasePlatformAdapter {
           errorUserMsg: error.response?.data?.error?.error_user_msg,
           requestUrl: error.config?.url,
           requestMethod: error.config?.method,
-          requestData: error.config?.data,
+          requestData: sanitizedData,
         });
       } else {
         log.error("Threads publish error", {
@@ -388,8 +415,12 @@ export class ThreadsAdapter extends BasePlatformAdapter {
     imageUrl: string
   ): Promise<string> {
     try {
+      // Resolve local file paths to data URIs or remote URLs
+      const resolvedUrl = await this.resolveMediaUrl(imageUrl);
+
       log.info("🖼️ Creating image container", {
-        imageUrl,
+        originalUrl: imageUrl,
+        isDataUri: resolvedUrl.startsWith('data:'),
         textLength: text.length,
         baseUrl: this.baseUrl,
         userId: this.userId,
@@ -397,14 +428,16 @@ export class ThreadsAdapter extends BasePlatformAdapter {
 
       const payload = {
         media_type: "IMAGE",
-        image_url: imageUrl,
+        image_url: resolvedUrl,
         text,
         access_token: this.accessToken,
       };
 
-      log.debug("📤 Sending image container request", {
+      log.debug("📤 Image container payload ready", {
         url: `${this.baseUrl}/${this.userId}/threads`,
-        payloadKeys: Object.keys(payload),
+        mediaType: "IMAGE",
+        textLength: text.length,
+        isDataUri: resolvedUrl.startsWith('data:'),
       });
 
       const response = await axios.post(
@@ -412,7 +445,7 @@ export class ThreadsAdapter extends BasePlatformAdapter {
         payload
       );
 
-      log.info(` Image container response:`, {
+      log.info(`Image container created successfully`, {
         containerId: response.data.id,
         status: response.status,
       });
@@ -438,6 +471,20 @@ export class ThreadsAdapter extends BasePlatformAdapter {
     text: string,
     videoUrl: string
   ): Promise<string> {
+    // Check if it's a local file - Threads API requires publicly accessible URLs for videos
+    if (!videoUrl.startsWith('http://') && !videoUrl.startsWith('https://')) {
+      throw new Error(
+        'Threads API requires videos to be hosted at publicly accessible URLs. ' +
+        'Local file paths are not supported for videos. Please upload your video to ' +
+        'a CDN or cloud storage service first.'
+      );
+    }
+
+    log.info('📹 Creating video container', {
+      videoUrl,
+      textLength: text.length,
+    });
+
     const response = await axios.post(
       `${this.baseUrl}/${this.userId}/threads`,
       {
@@ -447,6 +494,11 @@ export class ThreadsAdapter extends BasePlatformAdapter {
         access_token: this.accessToken,
       }
     );
+
+    log.info('Video container created successfully', {
+      containerId: response.data.id,
+    });
+
     return response.data.id;
   }
 

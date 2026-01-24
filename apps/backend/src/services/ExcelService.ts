@@ -187,7 +187,7 @@ export class ExcelService {
       const uint8Array = new Uint8Array(fileBuffer);
       await workbook.xlsx.load(uint8Array.buffer);
 
-      const sheetName = "Danh Sách Bài Post Decor";
+      const sheetName = "museinrose102 Bài Post Thời trang";
       let worksheet =
         workbook.getWorksheet(sheetName) ||
         workbook.getWorksheet("Danh Sách Bài Post");

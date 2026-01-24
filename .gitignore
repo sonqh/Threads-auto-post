@@ -24,5 +24,4 @@ dist-ssr
 *.sw?
 .turbo
 *.env
-./apps/backend/scripts/instagram-museinrose102-2026-01-04-JzumtgsY
-/apps/backend/scripts/instagram-museinrose102-2026-01-04-JzumtgsY
+/apps/backend/src/scripts/instagram-museinrose102-2026-01-04-JzumtgsY

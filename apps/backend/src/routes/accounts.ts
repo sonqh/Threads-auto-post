@@ -67,9 +67,10 @@ accountsRouter.get("/", async (req: Request, res: Response) => {
 accountsRouter.get("/:id", async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id || (req as any).userId;
-    logger.debug(`Fetching account ${req.params.id} for user: ${userId}`);
+    const accountId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    logger.debug(`Fetching account ${accountId} for user: ${userId}`);
 
-    const account = await credentialService.getAccount(req.params.id, userId);
+    const account = await credentialService.getAccount(accountId, userId);
 
     res.json({
       success: true,
@@ -88,7 +89,8 @@ accountsRouter.get("/:id", async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    logger.error(`Error fetching account ${req.params.id}:`, error);
+    const accountId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    logger.error(`Error fetching account ${accountId}:`, error);
     res.status(404).json({
       success: false,
       error: error instanceof Error ? error.message : "Account not found",
@@ -172,10 +174,11 @@ accountsRouter.patch("/:id", async (req: Request, res: Response) => {
       });
     }
 
-    logger.debug(`Updating account ${req.params.id} for user: ${userId}`);
+    const accountId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    logger.debug(`Updating account ${accountId} for user: ${userId}`);
 
     const account = await credentialService.updateAccount(
-      req.params.id,
+      accountId,
       userId,
       {
         accountName,
@@ -193,7 +196,8 @@ accountsRouter.patch("/:id", async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    logger.error(`Error updating account ${req.params.id}:`, error);
+    const accountId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    logger.error(`Error updating account ${accountId}:`, error);
     res.status(400).json({
       success: false,
       error:
@@ -209,12 +213,12 @@ accountsRouter.patch("/:id", async (req: Request, res: Response) => {
 accountsRouter.patch("/:id/default", async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id || (req as any).userId;
+    const accountId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     logger.debug(
-      `Setting account ${req.params.id} as default for user: ${userId}`
+      `Setting account ${accountId} as default for user: ${userId}`
     );
-
     const account = await credentialService.setDefaultAccount(
-      req.params.id,
+      accountId,
       userId
     );
 
@@ -228,7 +232,8 @@ accountsRouter.patch("/:id/default", async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    logger.error(`Error setting account ${req.params.id} as default:`, error);
+    const accountId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    logger.error(`Error setting account ${accountId} as default:`, error);
     res.status(400).json({
       success: false,
       error:
@@ -248,13 +253,14 @@ accountsRouter.post(
   async (req: Request, res: Response) => {
     try {
       const userId = (req as any).user?.id || (req as any).userId;
-      logger.info(`Manually refreshing token for account ${req.params.id}`);
+      const accountId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      logger.info(`Manually refreshing token for account ${accountId}`);
 
       // Verify user owns this account
-      await credentialService.getAccount(req.params.id, userId);
+      await credentialService.getAccount(accountId, userId);
 
       const account = await credentialService.refreshAccountToken(
-        req.params.id
+        accountId
       );
 
       res.json({
@@ -267,8 +273,9 @@ accountsRouter.post(
         },
       });
     } catch (error) {
+      const accountId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
       logger.error(
-        `Error refreshing token for account ${req.params.id}:`,
+        `Error refreshing token for account ${accountId}:`,
         error
       );
       res.status(400).json({
@@ -287,16 +294,18 @@ accountsRouter.post(
 accountsRouter.delete("/:id", async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id || (req as any).userId;
-    logger.info(`Deleting account ${req.params.id} for user: ${userId}`);
+    const accountId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    logger.info(`Deleting account ${accountId} for user: ${userId}`);
 
-    await credentialService.deleteAccount(req.params.id, userId);
+    await credentialService.deleteAccount(accountId, userId);
 
     res.json({
       success: true,
       message: "Account disconnected",
     });
   } catch (error) {
-    logger.error(`Error deleting account ${req.params.id}:`, error);
+    const accountId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    logger.error(`Error deleting account ${accountId}:`, error);
     res.status(400).json({
       success: false,
       error:
@@ -362,8 +371,8 @@ accountsRouter.get(
         isExpired: account.expiresAt ? account.expiresAt < new Date() : false,
         hoursUntilExpiration: account.expiresAt
           ? Math.round(
-              (account.expiresAt.getTime() - Date.now()) / (1000 * 60 * 60)
-            )
+            (account.expiresAt.getTime() - Date.now()) / (1000 * 60 * 60)
+          )
           : null,
         lastError: account.lastError || null,
       }));

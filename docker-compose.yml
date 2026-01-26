@@ -11,6 +11,14 @@ services:
       - MONGO_INITDB_DATABASE=threads-post-scheduler
     networks:
       - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
     healthcheck:
       test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
       interval: 10s
@@ -27,7 +35,15 @@ services:
       - redis_data:/data
     networks:
       - app-network
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -41,7 +57,7 @@ services:
     container_name: threads-backend
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      - "8080:3001"
     environment:
       - NODE_ENV=production
       - PORT=3001
@@ -51,16 +67,22 @@ services:
       - TZ=Asia/Ho_Chi_Minh
       - USE_EVENT_DRIVEN_SCHEDULER=false
     depends_on:
-      mongodb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - mongodb
+      - redis
     volumes:
       - ./apps/backend/logs:/app/logs
     networks:
       - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -73,13 +95,21 @@ services:
     container_name: threads-frontend
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3002:3000"
     depends_on:
       - backend
     networks:
       - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3002/health"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -22,45 +22,77 @@ export class ExcelService {
 
   /**
    * Extract actual cell value from ExcelJS (handles formulas, hyperlinks, rich text)
+   * ALWAYS returns string | null, never an object
    */
   private extractCellValue(cellValue: any): string | null {
     if (!cellValue) return null;
 
-    // Handle formula objects from ExcelJS
-    if (typeof cellValue === "object" && cellValue.formula) {
-      return cellValue.result || null;
+    // Handle string/number primitives first (most common case)
+    if (typeof cellValue === "string") {
+      return cellValue.trim() || null;
+    }
+    if (typeof cellValue === "number") {
+      return String(cellValue).trim() || null;
+    }
+    if (typeof cellValue === "boolean") {
+      return cellValue ? "true" : "false";
     }
 
-    // Handle hyperlink objects
-    if (typeof cellValue === "object" && cellValue.hyperlink) {
-      return cellValue.text || cellValue.hyperlink || null;
-    }
-
-    // Handle rich text objects - multiple formats
-    if (
-      typeof cellValue === "object" &&
-      cellValue.richText &&
-      Array.isArray(cellValue.richText)
-    ) {
-      const text = cellValue.richText
-        .map((t: any) => (typeof t === "object" && t.text ? t.text : ""))
-        .join("")
-        .trim();
-      return text || null;
-    }
-
-    // Handle plain objects that might contain text
-    if (typeof cellValue === "object") {
-      // Try to extract text if it's a richText-like structure
-      if (cellValue.text && typeof cellValue.text === "string") {
-        return cellValue.text.trim() || null;
-      }
-      // Last resort: return null instead of the object
+    // Only process objects from here on
+    if (typeof cellValue !== "object") {
       return null;
     }
 
-    // Regular string/number
-    return String(cellValue).trim() || null;
+    // Handle formula objects from ExcelJS
+    if (cellValue.formula) {
+      if (cellValue.result !== undefined && cellValue.result !== null) {
+        return this.extractCellValue(cellValue.result);
+      }
+      return null;
+    }
+
+    // Handle rich text objects - recursively extract all text
+    if (cellValue.richText && Array.isArray(cellValue.richText)) {
+      const textParts: string[] = [];
+      for (const item of cellValue.richText) {
+        if (typeof item === "string") {
+          textParts.push(item);
+        } else if (typeof item === "object" && item !== null && item.text) {
+          textParts.push(String(item.text));
+        }
+      }
+      const combined = textParts.join("").trim();
+      return combined || null;
+    }
+
+    // Handle objects with a text property that might itself be an object with richText
+    // This must be checked BEFORE hyperlink handling
+    if (cellValue.text) {
+      if (typeof cellValue.text === "string") {
+        return cellValue.text.trim() || null;
+      } else if (typeof cellValue.text === "object" && cellValue.text.richText) {
+        // Recursive call to handle nested richText structure
+        return this.extractCellValue(cellValue.text);
+      }
+    }
+
+    // Handle hyperlink objects (checked after text because text might contain richText)
+    if (cellValue.hyperlink) {
+      return String(cellValue.hyperlink).trim() || null;
+    }
+
+    // Handle arrays - join them
+    if (Array.isArray(cellValue)) {
+      const texts = cellValue
+        .map((v) => this.extractCellValue(v))
+        .filter((v) => v !== null);
+      const combined = texts.join("").trim();
+      return combined || null;
+    }
+
+    // For any other unhandled object type, return null
+    // This prevents [object Object] from appearing in the output
+    return null;
   }
 
   /**
@@ -133,9 +165,11 @@ export class ExcelService {
   /**
    * Sanitize URLs (add https if missing)
    */
-  private sanitizeUrl(url: string): string {
+  private sanitizeUrl(url: string | null): string {
     if (!url) return "";
     const trimmed = url.trim();
+    if (!trimmed) return "";
+    console.log("Sanitizing URL:", trimmed);
     if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
       return `https://${trimmed}`;
     }
@@ -187,7 +221,7 @@ export class ExcelService {
       const uint8Array = new Uint8Array(fileBuffer);
       await workbook.xlsx.load(uint8Array.buffer);
 
-      const sheetName = "Danh Sách Bài Post Decor";
+      const sheetName = "museinrose102 Bài Post Thời tra";
       let worksheet =
         workbook.getWorksheet(sheetName) ||
         workbook.getWorksheet("Danh Sách Bài Post");
@@ -243,6 +277,15 @@ export class ExcelService {
       // Save posts to database
       await Promise.all(posts.map((p) => p.save()));
 
+      console.log("\n=== BEFORE RETURNING RESULT ===");
+      posts.forEach((p, idx) => {
+        console.log(`Post ${idx} comment:`, p.comment, typeof p.comment);
+        if (p.comment && typeof p.comment === "object") {
+          console.error(`❌ Post ${idx} has object comment!`, JSON.stringify(p.comment));
+        }
+      });
+      console.log("=== END RESULT CHECK ===\n");
+
       return {
         success: true,
         imported: posts.length,
@@ -271,10 +314,45 @@ export class ExcelService {
     // Extract comment properly to handle rich text and ensure it's a string
     const commentRaw = rowData["comment"];
     let comment: string | undefined;
+
+    console.log(`\n=== ROW ${rowNumber} COMMENT DEBUG ===`);
+    console.log("commentRaw type:", typeof commentRaw);
+    console.log("commentRaw value:", commentRaw);
+    console.log("commentRaw stringified:", JSON.stringify(commentRaw, null, 2));
+
     if (commentRaw) {
+      // First try extractCellValue which handles complex Excel objects
       const extracted = this.extractCellValue(commentRaw);
-      comment = extracted ? String(extracted).trim() : undefined;
+      console.log("After extractCellValue - type:", typeof extracted);
+      console.log("After extractCellValue - value:", extracted);
+      console.log("After extractCellValue - is null?", extracted === null);
+
+      if (extracted && typeof extracted === "string") {
+        comment = extracted.trim();
+        console.log("✓ Set comment to extracted value:", comment);
+      } else if (extracted === null && commentRaw) {
+        // extractCellValue returned null, meaning it couldn't parse the object
+        // DO NOT use commentRaw directly - just skip this comment
+        console.warn(
+          `Row ${rowNumber}: Comment cell contains unparseable object, skipping:`,
+          {
+            type: typeof commentRaw,
+            keys: commentRaw && typeof commentRaw === "object" ? Object.keys(commentRaw) : "n/a",
+          }
+        );
+        // Leave comment as undefined - do NOT try to convert commentRaw
+      } else if (extracted && typeof extracted !== "string") {
+        // This should never happen due to our extractCellValue implementation
+        console.error(
+          `Row ${rowNumber}: extractCellValue returned non-string, non-null:`,
+          typeof extracted,
+          extracted
+        );
+      }
     }
+    console.log("Final comment variable (type):", typeof comment);
+    console.log("Final comment variable (value):", comment);
+    console.log("=== END COMMENT DEBUG ===\n");
 
     const postType = this.mapPostType(typeRaw);
     if (!postType) {
@@ -328,6 +406,9 @@ export class ExcelService {
     // Add comment if extracted and non-empty
     if (comment) {
       postData.comment = comment;
+    } else {
+      // Explicitly remove comment from postData if not valid
+      delete postData.comment;
     }
 
     // Collect all media links
@@ -367,7 +448,34 @@ export class ExcelService {
       return;
     }
 
+    // Final validation: ensure postData only has string values where expected
+    if (postData.comment && typeof postData.comment !== "string") {
+      console.warn(
+        `Row ${rowNumber}: postData.comment is not a string before Post creation:`,
+        typeof postData.comment,
+        postData.comment
+      );
+      delete postData.comment;
+    }
+
+    console.log(`Row ${rowNumber}: postData.comment before Post creation:`, postData.comment, typeof postData.comment);
+
     const post = new Post(postData);
+
+    console.log(`Row ${rowNumber}: post.comment after Post creation:`, post.comment, typeof post.comment);
+
+    // Safeguard: Ensure comment is always a string or undefined, never an object
+    if (post.comment && typeof post.comment !== "string") {
+      console.warn(
+        `Row ${rowNumber}: Post comment is not a string after creation`,
+        typeof post.comment,
+        String(post.comment)
+      );
+      post.comment = undefined;
+    }
+
+    console.log(`Row ${rowNumber}: post.comment after validation:`, post.comment, typeof post.comment);
+
     posts.push(post);
   }
 

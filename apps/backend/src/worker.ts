@@ -189,6 +189,21 @@ function classifyError(error: any): ErrorClassification {
     }
   }
 
+  // ========== Mongoose VersionError - Optimistic Concurrency Conflict ==========
+  if (
+    error.name === "VersionError" ||
+    (error.message && error.message.includes("No matching document found for id")) ||
+    (error.message && error.message.includes("version"))
+  ) {
+    return {
+      category: ErrorCategory.TRANSIENT,
+      shouldRollback: false, // Don't rollback - just retry with fresh data
+      message: "Document was modified by another process",
+      suggestedAction:
+        "The post was being updated by another process. This is normal and will be retried automatically with refreshed data.",
+    };
+  }
+
   // ========== Unknown errors - Default to retryable ==========
   const errorMessage = error instanceof Error ? error.message : String(error);
   return {
@@ -567,7 +582,20 @@ const worker = new Worker(
       // COMMENTED OUT: Lock release disabled
       // await idempotencyService.releaseExecutionLock(postId);
 
-      // Smart rollback mechanism
+      // 🎯 TRANSIENT ERROR HANDLING
+      // For transient errors (version conflicts, network issues), skip DB updates
+      // and let BullMQ retry. The post will be refetched on next attempt.
+      if (classification.category === ErrorCategory.TRANSIENT) {
+        log.warn(`⏳ Transient error for post ${postId}, will retry:`, {
+          message: classification.message,
+          attempt: job.attemptsMade,
+          maxAttempts: job.opts.attempts || 3,
+        });
+        // Just throw to let BullMQ retry - don't modify post status
+        throw error;
+      }
+
+      // Smart rollback mechanism for non-transient errors
       const post = await Post.findById(postId);
       if (post && post.status !== PostStatus.PUBLISHED) {
         const wasScheduled = post.scheduleConfig && post.scheduledAt;

@@ -13,6 +13,9 @@ import {
   getActiveSchedulerJobId,
   setActiveSchedulerJobId,
   clearSchedulerState,
+  withSchedulerLock,
+  cleanupStaleJobs,
+  validateSchedulerState,
 } from "../queue/schedulerQueue.js";
 import { idempotencyService } from "./IdempotencyService.js";
 import { log } from "../config/logger.js";
@@ -55,6 +58,19 @@ export class EventDrivenScheduler {
   private async restoreSchedulerState(): Promise<void> {
     try {
       log.info("🔄 Restoring scheduler state from Redis...");
+
+      // 🐛 BUG FIX #4: Clean up stale jobs on initialization
+      const cleanedCount = await cleanupStaleJobs();
+      if (cleanedCount > 0) {
+        log.info(`✓ Cleaned up ${cleanedCount} stale jobs`);
+      }
+
+      // Validate scheduler state consistency
+      const isValid = await validateSchedulerState();
+      if (!isValid) {
+        log.warn("⚠️  Scheduler state inconsistent, clearing and rebuilding...");
+        await clearSchedulerState();
+      }
 
       // Check if there's an active scheduler job
       const activeJobId = await getActiveSchedulerJobId();
@@ -99,9 +115,11 @@ export class EventDrivenScheduler {
       log.info("═".repeat(60));
       log.info(`🔍 SCHEDULER CHECK - ${now.toISOString()}`);
 
-      // Find all posts due within the batch window
+      // 🐛 BUG FIX #5: Add defensive status check to prevent re-processing
+      // Only query posts with SCHEDULED status to avoid re-processing posts
+      // that are already in PUBLISHING or PUBLISHED state
       const duePosts = await Post.find({
-        status: PostStatus.SCHEDULED,
+        status: PostStatus.SCHEDULED, // ✅ Explicitly filter for SCHEDULED only
         scheduledAt: {
           $lte: windowEnd, // Posts scheduled up to windowEnd (now + 5s)
         },
@@ -113,7 +131,15 @@ export class EventDrivenScheduler {
         log.success(`📬 Found ${duePosts.length} post(s) to process`);
 
         for (const post of duePosts) {
-          await this.processPost(post);
+          try {
+            await this.processPost(post);
+          } catch (postError) {
+            // 🐛 BUG FIX #6: Don't let one post failure stop others
+            log.error(`Failed to process post ${post._id}:`, {
+              error: postError instanceof Error ? postError.message : String(postError),
+            });
+            // Continue processing other posts
+          }
         }
       }
 
@@ -126,8 +152,17 @@ export class EventDrivenScheduler {
         error: error instanceof Error ? error.message : String(error),
       });
 
-      // On error, schedule next check in 60 seconds as fallback
-      await this.scheduleCheckAt(new Date(Date.now() + 60000));
+      // 🐛 BUG FIX #6: Improved error recovery
+      try {
+        // On error, schedule next check in 60 seconds as fallback
+        await this.scheduleCheckAt(new Date(Date.now() + 60000));
+      } catch (scheduleError) {
+        log.error("Failed to schedule fallback check:", {
+          error: scheduleError instanceof Error ? scheduleError.message : String(scheduleError),
+        });
+        // 🐛 BUG FIX #7: Clear Redis state if we can't recover
+        await clearSchedulerState();
+      }
     }
   }
 
@@ -245,6 +280,8 @@ export class EventDrivenScheduler {
 
   /**
    * Handle recurring scheduled post
+   * 🐛 BUG FIX #3: Keep post as SCHEDULED instead of PUBLISHING
+   * This allows the next occurrence to be found by the scheduler
    */
   private async handleRecurringPost(post: any): Promise<void> {
     const nextRunTime = this.getNextScheduleTime(post.scheduleConfig);
@@ -269,15 +306,14 @@ export class EventDrivenScheduler {
         { jobId }
       );
 
-      // Update status and schedule next run
+      // 🐛 BUG FIX #3: Keep status as SCHEDULED for recurring posts
+      // The worker will update to PUBLISHING -> PUBLISHED during execution
+      // But we need to keep the post in SCHEDULED state with updated scheduledAt
+      // so the next occurrence can be found by the scheduler
       post.jobId = jobId;
-      post.status = PostStatus.PUBLISHING;
-      post.publishingProgress = {
-        status: "publishing",
-        startedAt: new Date(),
-        currentStep: "Queued for publishing (recurring)...",
-      };
-      post.scheduledAt = nextRunTime;
+      post.scheduledAt = nextRunTime; // Update to next occurrence time
+      // ✅ Keep status as SCHEDULED, don't change to PUBLISHING
+      // post.status = PostStatus.PUBLISHING; // ❌ OLD BUGGY CODE
       await post.save();
 
       log.success(
@@ -367,41 +403,63 @@ export class EventDrivenScheduler {
 
   /**
    * Schedule a check at a specific time
+   * 🐛 BUG FIX #1: Use distributed lock to prevent race conditions
    */
   private async scheduleCheckAt(checkTime: Date): Promise<void> {
     const now = Date.now();
     const checkTimestamp = checkTime.getTime();
     const delay = Math.max(0, checkTimestamp - now);
 
-    // Remove existing scheduler job if any
-    const existingJobId = await getActiveSchedulerJobId();
-    if (existingJobId) {
-      const existingJob = await schedulerQueue.getJob(existingJobId);
-      if (existingJob) {
-        await existingJob.remove();
+    // 🐛 BUG FIX #1: Execute with distributed lock for atomic operation
+    const result = await withSchedulerLock(async () => {
+      try {
+        // Remove existing scheduler job if any
+        const existingJobId = await getActiveSchedulerJobId();
+        if (existingJobId) {
+          const existingJob = await schedulerQueue.getJob(existingJobId);
+          if (existingJob) {
+            await existingJob.remove();
+            log.info(`Removed previous scheduler job: ${existingJobId}`);
+          }
+        }
+
+        // Create new scheduler job
+        const jobId = `scheduler-check-${checkTimestamp}`;
+        await schedulerQueue.add(
+          SCHEDULER_JOB_NAME,
+          { checkTime: checkTimestamp },
+          {
+            jobId,
+            delay,
+            attempts: 3,
+            removeOnComplete: { count: 5 },
+            removeOnFail: { count: 10 },
+          }
+        );
+
+        // Persist state
+        await setNextExecutionAt(checkTimestamp);
+        await setActiveSchedulerJobId(jobId);
+
+        const delaySeconds = Math.floor(delay / 1000);
+        log.info(
+          `⏰ Next check scheduled in ${delaySeconds}s at ${checkTime.toISOString()}`
+        );
+
+        return true;
+      } catch (error) {
+        log.error("Failed to schedule check:", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        // 🐛 BUG FIX #7: Clear state on failure
+        await clearSchedulerState();
+        throw error;
       }
+    });
+
+    if (result === null) {
+      log.warn("Could not acquire scheduler lock, another instance may be scheduling");
     }
-
-    // Create new scheduler job
-    const jobId = `scheduler-check-${checkTimestamp}`;
-    const job = await schedulerQueue.add(
-      SCHEDULER_JOB_NAME,
-      { checkTime: checkTimestamp },
-      {
-        jobId,
-        delay,
-        attempts: 3,
-      }
-    );
-
-    // Persist state
-    await setNextExecutionAt(checkTimestamp);
-    await setActiveSchedulerJobId(jobId);
-
-    const delaySeconds = Math.floor(delay / 1000);
-    log.info(
-      `⏰ Next check scheduled in ${delaySeconds}s at ${checkTime.toISOString()}`
-    );
   }
 
   /**
@@ -418,41 +476,81 @@ export class EventDrivenScheduler {
 
   /**
    * Called when a post is scheduled (created or rescheduled)
+   * 🐛 BUG FIX #2: Improved error handling in event handler
    */
   async onPostScheduled(postId: string, scheduledAt: Date): Promise<void> {
-    log.info(
-      `📅 Event: Post ${postId} scheduled for ${scheduledAt.toISOString()}`
-    );
+    try {
+      log.info(
+        `📅 Event: Post ${postId} scheduled for ${scheduledAt.toISOString()}`
+      );
 
-    const currentNextExec = await getNextExecutionAt();
+      const currentNextExec = await getNextExecutionAt();
 
-    // If this post is due before the current next execution, reschedule
-    if (!currentNextExec || scheduledAt.getTime() < currentNextExec) {
-      log.info("🔄 Rescheduling: New post is due earlier");
-      await this.scheduleNextCheck();
+      // If this post is due before the current next execution, reschedule
+      if (!currentNextExec || scheduledAt.getTime() < currentNextExec) {
+        log.info("🔄 Rescheduling: New post is due earlier");
+        await this.scheduleNextCheck();
+      } else {
+        log.info(
+          `✓ Post scheduled for ${scheduledAt.toISOString()} (after current next check)`
+        );
+      }
+    } catch (error) {
+      log.error("Failed to handle onPostScheduled event:", {
+        error: error instanceof Error ? error.message : String(error),
+        postId,
+        scheduledAt: scheduledAt.toISOString(),
+      });
+      // Don't throw - this is an event handler, we don't want to break the caller
+      // Schedule an immediate check as fallback
+      try {
+        await this.scheduleImmediateCheck();
+      } catch (fallbackError) {
+        log.error("Failed to schedule fallback check:", {
+          error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+        });
+      }
     }
   }
 
   /**
    * Called when a scheduled post is cancelled or deleted
+   * 🐛 BUG FIX #2: Improved error handling in event handler
    */
   async onPostCancelled(postId: string): Promise<void> {
-    log.info(`🗑️  Event: Post ${postId} cancelled`);
+    try {
+      log.info(`🗑️  Event: Post ${postId} cancelled`);
 
-    // If the cancelled post was the next scheduled post, find new next post
-    const currentNextExec = await getNextExecutionAt();
-    const earliestPost = await Post.findOne({
-      status: PostStatus.SCHEDULED,
-    }).sort({ scheduledAt: 1 });
+      // If the cancelled post was the next scheduled post, find new next post
+      const currentNextExec = await getNextExecutionAt();
+      const earliestPost = await Post.findOne({
+        status: PostStatus.SCHEDULED,
+      }).sort({ scheduledAt: 1 });
 
-    if (
-      !earliestPost ||
-      !earliestPost.scheduledAt ||
-      (currentNextExec &&
-        earliestPost.scheduledAt.getTime() !== currentNextExec)
-    ) {
-      log.info("🔄 Rescheduling: Next post changed after cancellation");
-      await this.scheduleNextCheck();
+      if (
+        !earliestPost ||
+        !earliestPost.scheduledAt ||
+        (currentNextExec &&
+          earliestPost.scheduledAt.getTime() !== currentNextExec)
+      ) {
+        log.info("🔄 Rescheduling: Next post changed after cancellation");
+        await this.scheduleNextCheck();
+      } else {
+        log.info("✓ No reschedule needed, next post unchanged");
+      }
+    } catch (error) {
+      log.error("Failed to handle onPostCancelled event:", {
+        error: error instanceof Error ? error.message : String(error),
+        postId,
+      });
+      // Don't throw - schedule fallback check
+      try {
+        await this.scheduleNextCheck();
+      } catch (fallbackError) {
+        log.error("Failed to schedule fallback check:", {
+          error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+        });
+      }
     }
   }
 

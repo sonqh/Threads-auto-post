@@ -21,6 +21,7 @@ interface PostsTableProps {
   onDelete: (postId: string) => void;
   onFixStuck?: (postId: string) => void;
   onPostRecovered?: (post: Post) => void;
+  onDuplicateToAccount?: (postId: string, targetAccountId: string) => void;
   publishingIds?: Set<string>;
   credentials?: StoredCredential[];
 }
@@ -36,6 +37,7 @@ export const PostsTable = ({
   onDelete,
   onFixStuck,
   onPostRecovered,
+  onDuplicateToAccount,
   publishingIds,
   credentials,
 }: PostsTableProps) => {
@@ -91,6 +93,7 @@ export const PostsTable = ({
             onDelete={onDelete}
             onFixStuck={onFixStuck}
             onPostRecovered={onPostRecovered}
+            onDuplicateToAccount={onDuplicateToAccount}
             publishing={publishingIds?.has(post._id)}
             credentials={credentials}
           />

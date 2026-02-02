@@ -105,6 +105,9 @@ export class ThreadsAdapter extends BasePlatformAdapter {
         commentLength: data.comment?.length || 0,
       });
 
+      // ✅ PHASE 2: Report initial progress
+      data.progressCallback?.("Starting publish process...");
+
       if (!this.userId || !this.accessToken) {
         return {
           success: false,
@@ -116,6 +119,8 @@ export class ThreadsAdapter extends BasePlatformAdapter {
       let containerId: string;
 
       if (data.videoUrl) {
+        // ✅ PHASE 2: Report progress
+        data.progressCallback?.("Creating video container...");
         log.debug("📹 Creating video container");
         // Video post
         containerId = await this.createVideoContainer(
@@ -124,6 +129,10 @@ export class ThreadsAdapter extends BasePlatformAdapter {
         );
         log.debug(` Video container created: ${containerId}`);
       } else if (data.mediaUrls && data.mediaUrls.length > 1) {
+        // ✅ PHASE 2: Report progress
+        data.progressCallback?.(
+          `Creating carousel with ${data.mediaUrls.length} images...`
+        );
         log.debug(
           `🎠 Creating carousel container with ${data.mediaUrls.length} images`
         );
@@ -134,6 +143,8 @@ export class ThreadsAdapter extends BasePlatformAdapter {
         );
         log.debug(` Carousel container created: ${containerId}`);
       } else if (data.mediaUrls && data.mediaUrls.length === 1) {
+        // ✅ PHASE 2: Report progress
+        data.progressCallback?.("Creating image container...");
         log.debug(`🖼️ Creating image container`);
         // Single image post
         containerId = await this.createImageContainer(
@@ -142,6 +153,8 @@ export class ThreadsAdapter extends BasePlatformAdapter {
         );
         log.debug(` Image container created: ${containerId}`);
       } else {
+        // ✅ PHASE 2: Report progress
+        data.progressCallback?.("Creating text post...");
         log.debug("Creating text-only container");
         // Text-only post
         containerId = await this.createTextContainer(data.content);
@@ -149,6 +162,8 @@ export class ThreadsAdapter extends BasePlatformAdapter {
       }
 
       // Step 2: Publish the container
+      // ✅ PHASE 2: Report progress
+      data.progressCallback?.("Publishing to Threads API...");
       log.info(`📤 Publishing container ${containerId}`);
       const postId = await this.publishContainer(containerId);
       log.thread(`🧵 Post published successfully with ID: ${postId}`);
@@ -156,6 +171,8 @@ export class ThreadsAdapter extends BasePlatformAdapter {
       // Step 3: Handle comments (unless skipComment is true)
       // Comment failures should NOT fail the entire post - track separately
       if (data.comment && !data.skipComment) {
+        // ✅ PHASE 2: Report progress
+        data.progressCallback?.("Creating comment...");
         log.info("💬 Publishing comment separately from post...");
         commentResult = await this.publishComment(postId, data.comment);
 

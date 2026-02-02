@@ -69,10 +69,12 @@ export interface IPost extends Document {
   // Job tracking
   jobId?: string;
   publishingProgress?: {
-    status: "pending" | "publishing" | "published" | "failed";
+    status: "pending" | "publishing" | "published" | "failed" | "ready_to_retry";
     startedAt?: Date;
     completedAt?: Date;
+    lastUpdated?: Date; // ✅ PHASE 2: Track when progress was last updated
     currentStep?: string; // e.g., "Creating image container", "Publishing post", "Creating comment"
+    progress?: number; // ✅ PHASE 2: Progress percentage (0-100)
     error?: string;
   };
 
@@ -93,6 +95,8 @@ export interface IPost extends Document {
 
   // Error tracking
   error?: string;
+  errorCategory?: "FATAL" | "RETRYABLE" | "TRANSIENT"; // Error classification for smart retry logic
+  suggestedAction?: string; // User-facing guidance on how to fix the error
 
   // Timestamps
   createdAt: Date;
@@ -160,7 +164,7 @@ const PostSchema = new Schema<IPost>(
     publishingProgress: {
       status: {
         type: String,
-        enum: ["pending", "publishing", "published", "failed"],
+        enum: ["pending", "publishing", "published", "failed", "ready_to_retry"],
       },
       startedAt: Date,
       completedAt: Date,
@@ -185,6 +189,11 @@ const PostSchema = new Schema<IPost>(
     commentRetryCount: { type: Number, default: 0 },
     threadsCommentId: { type: String },
     error: { type: String },
+    errorCategory: {
+      type: String,
+      enum: ["FATAL", "RETRYABLE", "TRANSIENT"],
+    },
+    suggestedAction: { type: String },
   },
   {
     timestamps: true,

@@ -125,7 +125,41 @@ export const postsApi = {
     return response.data;
   },
 
+  async scheduleToMultipleAccounts(
+    id: string,
+    config: {
+      pattern: "ONCE" | "WEEKLY" | "MONTHLY" | "DATE_RANGE";
+      scheduledAt: string;
+      daysOfWeek?: number[];
+      dayOfMonth?: number;
+      endDate?: string;
+      time?: string;
+    },
+    accountIds: string[]
+  ): Promise<{
+    success: boolean;
+    message: string;
+    groupId: string;
+    posts: Array<{
+      _id: string;
+      threadsAccountId: string;
+      status: string;
+      scheduledAt: string;
+      bulkPostId: string;
+    }>;
+  }> {
+    const response = await axios.post(
+      `${API_BASE_URL}/posts/${id}/schedule-multi-account`,
+      {
+        ...config,
+        accountIds,
+      }
+    );
+    return response.data;
+  },
+
   async getPublishingProgress(id: string): Promise<{
+
     status: "pending" | "publishing" | "published" | "failed";
     startedAt?: string;
     completedAt?: string;
@@ -218,6 +252,43 @@ export const postsApi = {
     post: Post;
   }> {
     const response = await axios.post(`${API_BASE_URL}/posts/${id}/fix-stuck`);
+    return response.data;
+  },
+
+  async duplicatePost(
+    id: string,
+    targetAccountIds: string[]
+  ): Promise<{
+    success: boolean;
+    message: string;
+    duplicatedPosts: Array<{
+      _id: string;
+      threadsAccountId: string;
+      content: string;
+      status: string;
+    }>;
+  }> {
+    const response = await axios.post(`${API_BASE_URL}/posts/${id}/duplicate`, {
+      targetAccountIds,
+    });
+    return response.data;
+  },
+
+  async bulkAssignAccount(
+    postIds: string[],
+    targetAccountId: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    modifiedCount: number;
+  }> {
+    const response = await axios.post(
+      `${API_BASE_URL}/posts/bulk-assign-account`,
+      {
+        postIds,
+        targetAccountId,
+      }
+    );
     return response.data;
   },
 };

@@ -1,5 +1,6 @@
 import { Worker } from "bullmq";
 import dotenv from "dotenv";
+import axios from "axios";
 import { connectDatabase } from "./config/database.js";
 import { createRedisConnection } from "./config/redis.js";
 import {
@@ -21,6 +22,183 @@ dotenv.config();
 const connection = createRedisConnection();
 const threadsService = new ThreadsService();
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
+
+/**
+ * Error categories for intelligent error handling
+ */
+enum ErrorCategory {
+  FATAL = "FATAL",           // Can't retry: invalid content, expired token, permanent API errors
+  RETRYABLE = "RETRYABLE",   // Can retry: rate limit, temporary issues, invalid URLs (user can fix)
+  TRANSIENT = "TRANSIENT",   // Automatic retry: network issues, 5xx server errors
+}
+
+interface ErrorClassification {
+  category: ErrorCategory;
+  shouldRollback: boolean;
+  message: string;
+  suggestedAction: string;
+}
+
+/**
+ * Classify errors to determine appropriate handling
+ * @param error - The error to classify
+ * @returns Classification with category, rollback decision, and user-facing messages
+ */
+function classifyError(error: any): ErrorClassification {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+    const apiError = error.response?.data?.error;
+    const errorCode = apiError?.code;
+    const errorMessage = apiError?.message || error.message;
+
+    log.debug("Classifying API error:", {
+      status,
+      errorCode,
+      errorMessage: errorMessage?.substring(0, 100),
+    });
+
+    // ========== 400 Bad Request - Classify based on error code ==========
+    if (status === 400) {
+      // FATAL: Token expired (code 190)
+      if (errorCode === 190) {
+        return {
+          category: ErrorCategory.FATAL,
+          shouldRollback: false,
+          message: "Access token has expired",
+          suggestedAction:
+            "Please refresh your Threads access token in the Accounts settings. Your token needs to be renewed to continue posting.",
+        };
+      }
+
+      // RETRYABLE: Invalid image URL (code 100)
+      if (errorCode === 100 && errorMessage.toLowerCase().includes("image")) {
+        return {
+          category: ErrorCategory.RETRYABLE,
+          shouldRollback: true,
+          message: "Invalid image URL or image failed to download",
+          suggestedAction:
+            "Please check that your image URLs are publicly accessible, under 8MB, and in a supported format (JPEG, PNG, GIF, WebP). You can edit the post and try again.",
+        };
+      }
+
+      // RETRYABLE: Invalid video URL (code 100)
+      if (errorCode === 100 && errorMessage.toLowerCase().includes("video")) {
+        return {
+          category: ErrorCategory.RETRYABLE,
+          shouldRollback: true,
+          message: "Invalid video URL or video failed to download",
+          suggestedAction:
+            "Please check that your video URL is publicly accessible, under size limits, and in a supported format (MP4, MOV). You can edit the post and try again.",
+        };
+      }
+
+      // RETRYABLE: Rate limit (code 4 or 17)
+      if (
+        errorCode === 4 ||
+        errorCode === 17 ||
+        errorMessage.toLowerCase().includes("rate limit") ||
+        errorMessage.toLowerCase().includes("too many")
+      ) {
+        return {
+          category: ErrorCategory.RETRYABLE,
+          shouldRollback: true,
+          message: "Rate limit reached",
+          suggestedAction:
+            "You've hit Threads API rate limits. Scheduled posts will be retried automatically. For manual posts, please wait a few minutes before trying again.",
+        };
+      }
+
+      // RETRYABLE: Content too long
+      if (
+        errorMessage.toLowerCase().includes("text") &&
+        (errorMessage.toLowerCase().includes("long") ||
+          errorMessage.toLowerCase().includes("exceeds"))
+      ) {
+        return {
+          category: ErrorCategory.RETRYABLE,
+          shouldRollback: true,
+          message: "Content exceeds maximum length",
+          suggestedAction:
+            "Threads posts are limited to 500 characters. Please edit your post to make it shorter, then try again.",
+        };
+      }
+
+      // RETRYABLE: Default 400 - treat as fixable by user
+      return {
+        category: ErrorCategory.RETRYABLE,
+        shouldRollback: true,
+        message: errorMessage || "Invalid request to Threads API",
+        suggestedAction:
+          "There was an issue with your post content or settings. Please review and edit the post, then try publishing again. If the problem persists, check the Threads API documentation.",
+      };
+    }
+
+    // ========== 401 Unauthorized ==========
+    if (status === 401) {
+      return {
+        category: ErrorCategory.FATAL,
+        shouldRollback: false,
+        message: "Authentication failed",
+        suggestedAction:
+          "Your Threads credentials are invalid. Please update your access token in the Accounts settings.",
+      };
+    }
+
+    // ========== 403 Forbidden ==========
+    if (status === 403) {
+      return {
+        category: ErrorCategory.FATAL,
+        shouldRollback: false,
+        message: "Permission denied",
+        suggestedAction:
+          "Your account doesn't have permission to perform this action. Please check your Threads account settings and API permissions.",
+      };
+    }
+
+    // ========== 429 Too Many Requests ==========
+    if (status === 429) {
+      return {
+        category: ErrorCategory.RETRYABLE,
+        shouldRollback: true,
+        message: "Too many requests - rate limited",
+        suggestedAction:
+          "You've made too many requests to the Threads API. Scheduled posts will retry automatically. Please wait before posting manually.",
+      };
+    }
+
+    // ========== 5xx Server Errors - Always transient ==========
+    if (status && status >= 500 && status < 600) {
+      return {
+        category: ErrorCategory.TRANSIENT,
+        shouldRollback: true,
+        message: "Threads server error",
+        suggestedAction:
+          "The Threads API is experiencing issues. This post will be retried automatically. No action needed from you.",
+      };
+    }
+
+    // ========== Network/Timeout Errors ==========
+    if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
+      return {
+        category: ErrorCategory.TRANSIENT,
+        shouldRollback: true,
+        message: "Network timeout",
+        suggestedAction:
+          "Connection to Threads API timed out. This is usually temporary and the post will be retried automatically.",
+      };
+    }
+  }
+
+  // ========== Unknown errors - Default to retryable ==========
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  return {
+    category: ErrorCategory.RETRYABLE,
+    shouldRollback: true,
+    message: errorMessage,
+    suggestedAction:
+      "An unexpected error occurred. You can try editing and republishing this post. If the issue persists, please contact support.",
+  };
+}
 
 const worker = new Worker(
   "post-publishing",
@@ -148,6 +326,15 @@ const worker = new Worker(
 
         // ===== Step 5: Initialize adapter with correct credentials =====
         // Priority: 1) accountId from job data, 2) post.threadsAccountId
+        
+        // ✅ PHASE 1: Update progress - Fetching credentials
+        post.publishingProgress = {
+          status: "publishing",
+          startedAt: new Date(),
+          currentStep: "Fetching account credentials...",
+        };
+        await post.save();
+        
         const effectiveAccountId =
           accountId || post.threadsAccountId?.toString();
         let adapter = new ThreadsAdapter();
@@ -181,17 +368,21 @@ const worker = new Worker(
         }
 
         // ===== Step 6: Update content hash and status =====
+        
+        // ✅ PHASE 1: Update progress - Validating post
+        post.publishingProgress = {
+          status: "publishing",
+          startedAt: post.publishingProgress?.startedAt || new Date(),
+          currentStep: "Validating post content...",
+        };
+        await post.save();
+        
         post.contentHash = generateContentHash(
           post.content,
           post.imageUrls,
           post.videoUrl
         );
         post.status = PostStatus.PUBLISHING;
-        post.publishingProgress = {
-          status: "publishing",
-          startedAt: new Date(),
-          currentStep: "Publishing post...",
-        };
 
         // Initialize comment status if post has a comment
         if (post.comment && post.comment.trim()) {
@@ -209,6 +400,28 @@ const worker = new Worker(
             ? post.videoUrl
             : undefined;
 
+        // ✅ PHASE 1: Update progress - Preparing media or publishing
+        const hasMedia = mediaUrls.length > 0 || videoUrl;
+        post.publishingProgress!.currentStep = hasMedia
+          ? `Preparing ${mediaUrls.length > 0 ? mediaUrls.length + ' image(s)' : 'video'}...`
+          : "Publishing to Threads...";
+        await post.save();
+
+        // ✅ PHASE 2: Create progress callback function
+        const updateProgress = async (step: string) => {
+          try {
+            console.log(`📊 Progress update: ${step}`);
+            // Update database in real-time
+            await Post.findByIdAndUpdate(postId, {
+              "publishingProgress.currentStep": step,
+              "publishingProgress.lastUpdated": new Date(),
+            });
+          } catch (error) {
+            // Don't fail the job if progress update fails
+            console.error("Failed to update progress:", error);
+          }
+        };
+
         // ===== Step 8: Publish to Threads (post only, handle comment separately) =====
         const result = await adapter.publishPost({
           content: post.content,
@@ -216,10 +429,16 @@ const worker = new Worker(
           videoUrl,
           comment: post.comment,
           skipComment: false, // Let adapter handle comment, but track result separately
+          progressCallback: updateProgress, // ✅ PHASE 2: Pass callback
         });
 
         if (result.success) {
-          // ===== Step 8: Post succeeded - update status =====
+          // ===== Step 9: Post succeeded - update status =====
+          
+          // ✅ PHASE 1: Update progress - Finalizing
+          post.publishingProgress!.currentStep = "Finalizing...";
+          await post.save();
+          
           post.status = PostStatus.PUBLISHED;
           post.threadsPostId = result.platformPostId;
           post.publishedAt = new Date();
@@ -334,44 +553,101 @@ const worker = new Worker(
         // await idempotencyService.releaseExecutionLock(postId);
       }
     } catch (error: unknown) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
+      // 🎯 SMART ERROR CLASSIFICATION & ROLLBACK
+      const classification = classifyError(error);
+
       log.error(`Failed to publish post ${postId}:`, {
-        error: errorMessage,
+        errorCategory: classification.category,
+        errorMessage: classification.message,
+        suggestedAction: classification.suggestedAction,
+        attemptsMade: job.attemptsMade,
       });
 
       // Release lock if held
       // COMMENTED OUT: Lock release disabled
       // await idempotencyService.releaseExecutionLock(postId);
 
-      // Rollback mechanism (only for non-published posts)
+      // Smart rollback mechanism
       const post = await Post.findById(postId);
       if (post && post.status !== PostStatus.PUBLISHED) {
         const wasScheduled = post.scheduleConfig && post.scheduledAt;
         const maxAttempts = job.opts.attempts || 3;
+        const isRecurring = post.scheduleConfig?.pattern !== "ONCE";
 
-        if (wasScheduled && job.attemptsMade < maxAttempts) {
-          // Rollback to SCHEDULED for retry
-          post.status = PostStatus.SCHEDULED;
-          post.error = `Failed attempt ${job.attemptsMade}/${maxAttempts}: ${errorMessage}`;
-          log.warn(`Rolling back post ${postId} to SCHEDULED status`, {
-            attempt: job.attemptsMade,
-            maxAttempts,
-          });
+        // Determine target status based on error category and post type
+        if (classification.shouldRollback) {
+          if (wasScheduled && job.attemptsMade < maxAttempts) {
+            // ✅ Scheduled posts: rollback to SCHEDULED for auto-retry
+            post.status = PostStatus.SCHEDULED;
+            post.error = `${classification.message} (Attempt ${job.attemptsMade}/${maxAttempts})`;
+            post.errorCategory = classification.category;
+            post.suggestedAction = classification.suggestedAction;
+            log.warn(
+              `✅ Rolling back scheduled post ${postId} to SCHEDULED for retry`,
+              {
+                attempt: job.attemptsMade,
+                maxAttempts,
+                errorCategory: classification.category,
+              }
+            );
+          } else if (!wasScheduled) {
+            // ✅ Manual posts: rollback to DRAFT for user to fix and retry
+            post.status = PostStatus.DRAFT;
+            post.error = classification.message;
+            post.errorCategory = classification.category;
+            post.suggestedAction = classification.suggestedAction;
+            log.warn(
+              `✅ Rolling back manual post ${postId} to DRAFT for user retry`,
+              {
+                errorCategory: classification.category,
+                userCanFix: true,
+              }
+            );
+          } else {
+            // Max retries reached for scheduled post
+            post.status = isRecurring ? PostStatus.SCHEDULED : PostStatus.FAILED;
+            post.error = `${classification.message} (Max retries reached: ${maxAttempts})`;
+            post.errorCategory = classification.category;
+            post.suggestedAction = classification.suggestedAction;
+            log.error(
+              `❌ Max retries reached for post ${postId}, marking as ${post.status}`,
+              {
+                maxAttempts,
+                isRecurring,
+              }
+            );
+          }
+
+          // Set appropriate publishing progress status
+          post.publishingProgress = {
+            status: (post.status === PostStatus.DRAFT
+              ? "ready_to_retry"
+              : "failed") as "ready_to_retry" | "failed" | "pending" | "publishing" | "published",
+            startedAt: post.publishingProgress?.startedAt,
+            completedAt: new Date(),
+            currentStep: classification.message,
+            error: classification.message,
+          };
         } else {
-          // Mark as FAILED (max retries reached or manual post)
+          // ❌ Fatal errors - don't rollback, mark as FAILED
           post.status = PostStatus.FAILED;
-          post.error = errorMessage;
-          log.error(`Marking post ${postId} as FAILED`);
+          post.error = classification.message;
+          post.errorCategory = classification.category;
+          post.suggestedAction = classification.suggestedAction;
+          post.publishingProgress = {
+            status: "failed",
+            startedAt: post.publishingProgress?.startedAt,
+            completedAt: new Date(),
+            currentStep: "Publishing failed (fatal error)",
+            error: classification.message,
+          };
+          log.error(
+            `❌ Fatal error for post ${postId}, marking as FAILED (no rollback)`,
+            {
+              errorCategory: classification.category,
+            }
+          );
         }
-
-        post.publishingProgress = {
-          status: "failed",
-          startedAt: post.publishingProgress?.startedAt,
-          completedAt: new Date(),
-          currentStep: "Publishing failed",
-          error: errorMessage,
-        };
 
         await post.save();
       }
@@ -389,7 +665,7 @@ const worker = new Worker(
     // Stalled job handling - critical for preventing stuck jobs
     stalledInterval: 30000, // Check for stalled jobs every 30 seconds
     maxStalledCount: 2, // Move job to failed after 2 stalled detections
-    lockDuration: 60000, // Jobs are locked for 60 seconds
+    lockDuration: 5 * 60 * 1000, // ✅ 5 minute timeout - auto-fail stuck jobs (increased from 60s)
   }
 );
 

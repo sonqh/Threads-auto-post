@@ -1,5 +1,15 @@
 import { format } from "date-fns";
-import { Calendar, Edit2, Play, Square, Trash2, Zap } from "lucide-react";
+import {
+  Calendar,
+  Edit2,
+  Play,
+  Square,
+  Trash2,
+  Zap,
+  MoreVertical,
+  Copy,
+  UserCircle2,
+} from "lucide-react";
 import React, { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
@@ -8,6 +18,15 @@ import { ProgressSpinner } from "./ProgressSpinner";
 import { StuckPostRecoveryModal } from "./StuckPostRecoveryModal";
 import type { Post, PostStatusType } from "@/types";
 import type { StoredCredential } from "@/hooks/useCredentials";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+} from "./ui/dropdown-menu";
 
 interface PostRowProps {
   post: Post;
@@ -20,28 +39,10 @@ interface PostRowProps {
   onDelete: (postId: string) => void;
   onFixStuck?: (postId: string) => void;
   onPostRecovered?: (post: Post) => void;
+  onDuplicateToAccount?: (postId: string, targetAccountId: string) => void;
   publishing?: boolean;
   credentials?: StoredCredential[];
 }
-
-const getStatusBadge = (status: PostStatusType) => {
-  const baseClasses = "px-2 py-1 rounded-full text-xs font-medium";
-
-  switch (status) {
-    case "DRAFT":
-      return `${baseClasses} bg-gray-100 text-gray-800`;
-    case "PUBLISHING":
-      return `${baseClasses} bg-yellow-100 text-yellow-800`;
-    case "SCHEDULED":
-      return `${baseClasses} bg-blue-100 text-blue-800`;
-    case "PUBLISHED":
-      return `${baseClasses} bg-green-100 text-green-800`;
-    case "FAILED":
-      return `${baseClasses} bg-red-100 text-red-800`;
-    default:
-      return `${baseClasses} bg-gray-100 text-gray-800`;
-  }
-};
 
 export const PostRow: React.FC<PostRowProps> = ({
   post,
@@ -54,11 +55,50 @@ export const PostRow: React.FC<PostRowProps> = ({
   onDelete,
   onFixStuck,
   onPostRecovered,
+  onDuplicateToAccount,
   publishing = false,
   credentials,
 }) => {
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [isStuckPublishing, setIsStuckPublishing] = useState(false);
+
+  // Enhanced status badge with modern design
+  const getStatusBadge = (status: PostStatusType): string => {
+    const baseClasses = "px-3 py-1 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 transition-all";
+    
+    switch (status) {
+      case "DRAFT":
+        return `${baseClasses} bg-gray-100 text-gray-700 border border-gray-200`;
+      case "SCHEDULED":
+        return `${baseClasses} bg-blue-50 text-blue-700 border border-blue-200`;
+      case "PUBLISHING":
+        return `${baseClasses} bg-yellow-50 text-yellow-700 border border-yellow-200 animate-pulse`;
+      case "PUBLISHED":
+        return `${baseClasses} bg-green-50 text-green-700 border border-green-200`;
+      case "FAILED":
+        return `${baseClasses} bg-red-50 text-red-700 border border-red-200`;
+      default:
+        return `${baseClasses} bg-gray-100 text-gray-700 border border-gray-200`;
+    }
+  };
+
+  // Get status icon
+  const getStatusIcon = (status: PostStatusType) => {
+    switch (status) {
+      case "DRAFT":
+        return "📝";
+      case "SCHEDULED":
+        return "📅";
+      case "PUBLISHING":
+        return "🚀";
+      case "PUBLISHED":
+        return "✅";
+      case "FAILED":
+        return "❌";
+      default:
+        return "📄";
+    }
+  };
 
   // Get account name from account ID or default account
   const getAccountName = () => {
@@ -144,31 +184,46 @@ export const PostRow: React.FC<PostRowProps> = ({
         </TableCell>
 
         <TableCell>
+          {/* Compact Status Badge */}
           <div className="flex items-center gap-2">
             <span className={getStatusBadge(post.status as PostStatusType)}>
-              {post.status}
+              <span className="text-sm">{getStatusIcon(post.status as PostStatusType)}</span>
+              <span>{post.status}</span>
             </span>
+
+            {/* Compact Progress Indicator (Publishing only) */}
             {post.status === "PUBLISHING" && post.publishingProgress && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5" title={post.publishingProgress.currentStep || "Publishing..."}>
                 <ProgressSpinner
                   isActive={true}
                   currentStep={post.publishingProgress.currentStep}
                   size="sm"
                 />
-                {isStuckPublishing && (
-                  <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">
-                    Stuck
+                {post.publishingProgress.startedAt && (
+                  <span className="text-xs text-gray-400">
+                    {Math.floor(
+                      (Date.now() - new Date(post.publishingProgress.startedAt).getTime()) / 1000
+                    )}s
                   </span>
                 )}
               </div>
             )}
+
+            {/* Compact Error Indicator (Failed only) */}
             {post.status === "FAILED" && post.error && (
               <div
                 title={post.error}
-                className="w-4 h-4 rounded-full bg-red-100 flex items-center justify-center"
+                className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center cursor-help border border-red-300"
               >
                 <span className="text-xs font-bold text-red-600">!</span>
               </div>
+            )}
+
+            {/* Stuck Warning (compact) */}
+            {isStuckPublishing && (
+              <span className="text-xs bg-red-50 text-red-700 px-1.5 py-0.5 rounded border border-red-200 font-semibold">
+                ⚠️
+              </span>
             )}
           </div>
         </TableCell>
@@ -231,6 +286,51 @@ export const PostRow: React.FC<PostRowProps> = ({
             >
               <Edit2 className="h-4 w-4" />
             </Button>
+
+            {/* Duplicate to Account Dropdown */}
+            {onDuplicateToAccount && credentials && credentials.length > 1 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    title="More actions"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Copy className="h-4 w-4 mr-2" />
+                      Duplicate to Account...
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                     {credentials
+                        .filter((c) => c.id !== post.threadsAccountId)
+                        .map((account) => (
+                          <DropdownMenuItem
+                            key={account.id}
+                            onClick={() =>
+                              onDuplicateToAccount(post._id, account.id)
+                            }
+                          >
+                            <UserCircle2 className="h-4 w-4 mr-2" />
+                            {account.accountName || account.threadsUserId}
+                          </DropdownMenuItem>
+                        ))}
+                      {credentials.filter((c) => c.id !== post.threadsAccountId)
+                        .length === 0 && (
+                        <DropdownMenuItem disabled>
+                          No other accounts available
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}            
 
             {isStuckPublishing && onFixStuck && (
               <Button

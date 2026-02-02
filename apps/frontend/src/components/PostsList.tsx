@@ -1,5 +1,13 @@
 import { format } from "date-fns";
-import { Download, ArrowUp, ArrowDown, Plus } from "lucide-react";
+import {
+  Download,
+  ArrowUp,
+  ArrowDown,
+  Plus,
+  Users,
+  UserCircle,
+  Star,
+} from "lucide-react";
 import React, { useEffect, useState, useCallback } from "react";
 import {
   usePostList,
@@ -91,6 +99,42 @@ export const PostsList: React.FC = () => {
         : "";
     }
   );
+
+  // Calculate post counts per account for quick switcher
+  const [postCountsByAccount, setPostCountsByAccount] = useState<
+    Record<string, number>
+  >({});
+
+  // Fetch post counts for each account
+  useEffect(() => {
+    const fetchPostCounts = async () => {
+      const counts: Record<string, number> = {};
+
+      // Get count for "All Accounts"
+      const allResult = await postsApi.getPosts({ limit: 0 });
+      counts["all"] = allResult.total;
+
+      // Get count for each specific account
+      for (const cred of credentials) {
+        try {
+          const result = await postsApi.getPosts({
+            accountId: cred.id,
+            limit: 0,
+          });
+          counts[cred.id] = result.total;
+        } catch (error) {
+          console.error(`Failed to get count for ${cred.id}`, error);
+          counts[cred.id] = 0;
+        }
+      }
+
+      setPostCountsByAccount(counts);
+    };
+
+    if (credentials.length > 0) {
+      fetchPostCounts();
+    }
+  }, [credentials, selectedStatus, page]); // Refresh counts when status or page changes
 
   // Close scheduler modal when account changes to prevent stale accountId
   useEffect(() => {
@@ -446,18 +490,45 @@ export const PostsList: React.FC = () => {
       // Get the LATEST selectedAccountId value at submit time, not from closure
       const currentAccountId = selectedAccountId;
 
-      if (!currentAccountId) {
-        alert("Please select an account to schedule for");
-        return;
-      }
       try {
         console.log("🎯 PostsList: Schedule submitted");
         console.log(`   Post ID: ${schedulingPostId}`);
         console.log(`   Config:`, config);
-        console.log(`   Account ID: ${currentAccountId}`);
+        console.log(`   Account ID: ${currentAccountId || "ALL ACCOUNTS"}`);
 
-        await schedulePost(schedulingPostId, config, [currentAccountId]);
-        console.log(" PostsList: Schedule API success");
+        // ✅ NEW: Multi-account scheduling support
+        if (!currentAccountId && credentials.length > 1) {
+          // No account selected = schedule to ALL accounts
+          console.log(`📅 Scheduling to ALL ${credentials.length} accounts`);
+          
+          const accountIds = credentials.map((c) => c.id);
+          const result = await postsApi.scheduleToMultipleAccounts(
+            schedulingPostId,
+            {
+              pattern: config.pattern,
+              scheduledAt: config.scheduledAt,
+              daysOfWeek: config.daysOfWeek,
+              dayOfMonth: config.dayOfMonth,
+              endDate: config.endDate,
+              time: config.time,
+            },
+            accountIds
+          );
+
+          console.log(`✅ Multi-account schedule success: ${result.posts.length} posts created`);
+          alert(
+            `✅ Scheduled ${result.posts.length} posts to ${accountIds.length} accounts!`
+          );
+        } else {
+          // Single account scheduling (existing behavior)
+          if (!currentAccountId) {
+            alert("Please select an account to schedule for");
+            return;
+          }
+
+          await schedulePost(schedulingPostId, config, [currentAccountId]);
+          console.log("✅ PostsList: Schedule API success");
+        }
 
         await fetchPosts(
           selectedStatus || undefined,
@@ -479,6 +550,7 @@ export const PostsList: React.FC = () => {
       selectedStatus,
       page,
       selectedAccountId,
+      credentials,
     ]
   );
 
@@ -619,6 +691,28 @@ export const PostsList: React.FC = () => {
     window.URL.revokeObjectURL(url);
   }, [posts]);
 
+  // Handler for duplicating post to other accounts
+  const handleDuplicateToAccount = useCallback(
+    async (postId: string, targetAccountId: string) => {
+      try {
+        const result = await postsApi.duplicatePost(postId, [targetAccountId]);
+        alert(
+          `Successfully duplicated post to ${result.duplicatedPosts.length} account(s)`
+        );
+        await fetchPosts(
+          selectedStatus || undefined,
+          page,
+          undefined,
+          selectedAccountId || undefined
+        );
+      } catch (error) {
+        console.error("Failed to duplicate post:", error);
+        alert("Failed to duplicate post. Please try again.");
+      }
+    },
+    [fetchPosts, selectedStatus, page, selectedAccountId]
+  );
+
   return (
     <Card>
       <CardHeader>
@@ -670,6 +764,65 @@ export const PostsList: React.FC = () => {
             </Button>
           ))}
         </div>
+
+        {/* Quick Account Switcher */}
+        {credentials.length > 1 && (
+          <div className="mt-4 pb-4 border-b">
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
+              {/* All Accounts Button */}
+              <Button
+                variant={!selectedAccountId ? "default" : "outline"}
+                size="sm"
+                className="flex items-center gap-2 whitespace-nowrap"
+                onClick={() => setSelectedAccount("")}
+              >
+                <Users className="h-4 w-4" />
+                All
+                {postCountsByAccount["all"] !== undefined && (
+                  <span
+                    className={`ml-1 px-2 py-0.5 rounded-full text-xs ${
+                      !selectedAccountId
+                        ? "bg-white text-blue-600"
+                        : "bg-gray-100 text-gray-600"
+                    }`}
+                  >
+                    {postCountsByAccount["all"]}
+                  </span>
+                )}
+              </Button>
+
+              {/* Individual Account Tabs */}
+              {credentials.map((account) => (
+                <Button
+                  key={account.id}
+                  variant={
+                    selectedAccountId === account.id ? "default" : "outline"
+                  }
+                  size="sm"
+                  className="flex items-center gap-2 whitespace-nowrap"
+                  onClick={() => setSelectedAccount(account.id)}
+                >
+                  <UserCircle className="h-4 w-4" />
+                  {account.accountName || account.threadsUserId}
+                  {postCountsByAccount[account.id] !== undefined && (
+                    <span
+                      className={`ml-1 px-2 py-0.5 rounded-full text-xs ${
+                        selectedAccountId === account.id
+                          ? "bg-white text-blue-600"
+                          : "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      {postCountsByAccount[account.id]}
+                    </span>
+                  )}
+                  {account.isDefault && (
+                    <Star className="h-3 w-3 fill-yellow-400 text-yellow-400 ml-1" />
+                  )}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Account & Type Filters */}
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -815,6 +968,7 @@ export const PostsList: React.FC = () => {
               onDelete={handleDeletePost}
               onFixStuck={handleFixStuck}
               onPostRecovered={handlePostRecovered}
+              onDuplicateToAccount={handleDuplicateToAccount}
               publishingIds={
                 new Set(Object.keys(publishing).filter((id) => publishing[id]))
               }

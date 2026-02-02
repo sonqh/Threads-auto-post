@@ -91,10 +91,14 @@ export class PostService {
     await Post.findByIdAndDelete(id);
 
     // 🎯 EVENT: Notify scheduler if a scheduled post was deleted
+    // 🐛 BUG FIX #2: Properly await event handler
     if (wasScheduled && process.env.USE_EVENT_DRIVEN_SCHEDULER === "true") {
-      await eventDrivenScheduler.onPostCancelled(id).catch((err) => {
+      try {
+        await eventDrivenScheduler.onPostCancelled(id);
+      } catch (err) {
         console.error("Failed to notify scheduler:", err);
-      });
+        // Don't throw - post is already deleted
+      }
     }
   }
 
@@ -334,15 +338,101 @@ export class PostService {
     console.log(`   Schedule Config:`, savedPost.scheduleConfig);
 
     // 🎯 EVENT: Notify scheduler of new scheduled post
+    // 🐛 BUG FIX #2: Properly await event handler to ensure scheduler updates before returning
     if (process.env.USE_EVENT_DRIVEN_SCHEDULER === "true") {
-      await eventDrivenScheduler
-        .onPostScheduled(postId, config.scheduledAt)
-        .catch((err) => {
-          console.error("Failed to notify scheduler:", err);
-        });
+      try {
+        await eventDrivenScheduler.onPostScheduled(postId, config.scheduledAt);
+        console.log(`✅ Scheduler notified successfully`);
+      } catch (err) {
+        console.error("Failed to notify scheduler:", err);
+        // Log but don't throw - post is already saved
+        // Scheduler will pick it up on next check or restart
+      }
     }
 
     return savedPost;
+  }
+
+  /**
+   * Schedule a post to multiple accounts
+   * Creates separate post records for each account, all scheduled for the same time
+   */
+  async scheduleToMultipleAccounts(
+    sourcePostId: string,
+    config: ScheduleConfig,
+    accountIds: string[]
+  ): Promise<{
+    success: boolean;
+    groupId: string;
+    posts: IPost[];
+  }> {
+    console.log(`\n📅 PostService.scheduleToMultipleAccounts() called:`);
+    console.log(`   Source Post ID: ${sourcePostId}`);
+    console.log(`   Account IDs: ${accountIds.join(", ")}`);
+    console.log(`   Config:`, config);
+
+    if (config.scheduledAt <= new Date()) {
+      throw new Error("Scheduled time must be in the future");
+    }
+
+    // Get source post
+    const sourcePost = await this.getPost(sourcePostId);
+    console.log(`   Found source post: "${sourcePost.content.substring(0, 40)}..."`);
+
+    // Validate
+    this.validatePostForPublishing(sourcePost);
+    console.log(`✅ Post validation passed`);
+
+    // Generate group ID to link all posts together
+    const groupId = crypto.randomUUID();
+    const scheduledPosts: IPost[] = [];
+
+    for (const accountId of accountIds) {
+      console.log(`   Creating scheduled post for account: ${accountId}`);
+
+      // Create new post for this account
+      const newPost = new Post({
+        content: sourcePost.content,
+        postType: sourcePost.postType,
+        imageUrls: sourcePost.imageUrls || [],
+        videoUrl: sourcePost.videoUrl,
+        comment: sourcePost.comment,
+        topic: sourcePost.topic,
+        threadsAccountId: accountId,
+        status: PostStatus.SCHEDULED,
+        scheduledAt: config.scheduledAt,
+        scheduleConfig: config,
+        bulkPostId: groupId, // Link posts together
+      });
+
+      await newPost.save();
+      scheduledPosts.push(newPost);
+      console.log(`   ✅ Created post ${newPost._id} for account ${accountId}`);
+
+      // Notify scheduler for each post
+      if (process.env.USE_EVENT_DRIVEN_SCHEDULER === "true") {
+        try {
+          await eventDrivenScheduler.onPostScheduled(
+            newPost._id.toString(),
+            config.scheduledAt
+          );
+          console.log(`   ✅ Scheduler notified for post ${newPost._id}`);
+        } catch (err) {
+          console.error(`   ❌ Failed to notify scheduler for post ${newPost._id}:`, err);
+          // Don't throw - post is already saved, scheduler will pick it up
+        }
+      }
+    }
+
+    console.log(`\n✅ Scheduled ${scheduledPosts.length} posts to ${accountIds.length} accounts`);
+    console.log(`   Group ID: ${groupId}`);
+    console.log(`   Scheduled At: ${config.scheduledAt.toISOString()}`);
+
+    return {
+      success: true,
+      groupId,
+      posts: scheduledPosts,
+    };
   }
 
   /**
@@ -612,10 +702,14 @@ export class PostService {
           log.success(`Cancelled scheduled post ${postId}`);
 
           // Notify event-driven scheduler to remove the post
+          // 🐛 BUG FIX #2: Properly await event handler
           if (process.env.USE_EVENT_DRIVEN_SCHEDULER === "true") {
-            await eventDrivenScheduler.onPostCancelled(postId).catch((err) => {
+            try {
+              await eventDrivenScheduler.onPostCancelled(postId);
+            } catch (err) {
               log.warn(`Failed to notify scheduler of cancellation: ${err}`);
-            });
+              // Don't throw - post is already cancelled
+            }
           }
         }
       } catch (error) {
@@ -663,6 +757,60 @@ export class PostService {
         `${post.postType} posts require at least one image/video URL`
       );
     }
+  }
+
+  /**
+   * Duplicate a post to one or more target accounts
+   */
+  async duplicatePost(
+    postId: string,
+    targetAccountIds: string[]
+  ): Promise<{ success: boolean; duplicatedPosts: IPost[] }> {
+    const original = await this.getPost(postId);
+    const duplicates: IPost[] = [];
+
+    for (const accountId of targetAccountIds) {
+      const duplicate = new Post({
+        content: original.content,
+        postType: original.postType,
+        imageUrls: original.imageUrls || [],
+        videoUrl: original.videoUrl,
+        comment: original.comment,
+        topic: original.topic,
+        threadsAccountId: accountId,
+        status: PostStatus.DRAFT,
+        // Don't copy: threadsPostId, jobId, publishing progress, error
+      });
+      const saved = await duplicate.save();
+      duplicates.push(saved);
+    }
+
+    log.info(
+      `Duplicated post ${postId} to ${targetAccountIds.length} account(s)`,
+      { targetAccountIds }
+    );
+
+    return { success: true, duplicatedPosts: duplicates };
+  }
+
+  /**
+   * Bulk assign posts to a different account
+   */
+  async bulkAssignAccount(
+    postIds: string[],
+    targetAccountId: string
+  ): Promise<{ success: boolean; modifiedCount: number }> {
+    const result = await Post.updateMany(
+      { _id: { $in: postIds } },
+      { $set: { threadsAccountId: targetAccountId } }
+    );
+
+    log.info(
+      `Bulk assigned ${result.modifiedCount} posts to account ${targetAccountId}`,
+      { postIds: postIds.length }
+    );
+
+    return { success: true, modifiedCount: result.modifiedCount || 0 };
   }
 }
 

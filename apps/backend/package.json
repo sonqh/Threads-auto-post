@@ -10,7 +10,8 @@
     "worker": "tsx watch src/worker.ts",
     "test": "vitest",
     "test:run": "vitest run",
-    "import:threads": "node scripts/import-threads-export.js"
+    "import:threads": "node scripts/import-threads-export.js",
+    "cleanup-stuck-posts": "tsx src/scripts/cleanupStuckPosts.ts"
   },
   "dependencies": {
     "axios": "^1.7.9",

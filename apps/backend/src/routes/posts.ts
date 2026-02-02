@@ -262,7 +262,98 @@ router.post("/:id/schedule", async (req, res) => {
   }
 });
 
+// Schedule post to multiple accounts
+// Creates separate post records for each account, all scheduled for the same time
+router.post("/:id/schedule-multi-account", async (req, res) => {
+  try {
+    const postId = req.params.id;
+    const {
+      pattern,
+      scheduledAt,
+      daysOfWeek,
+      dayOfMonth,
+      endDate,
+      time,
+      accountIds,
+    } = req.body;
+
+    console.log(`\n📅 MULTI-ACCOUNT SCHEDULE REQUEST RECEIVED:`);
+    console.log(`   Post ID: ${postId}`);
+    console.log(`   Pattern: ${pattern}`);
+    console.log(`   Scheduled At: ${scheduledAt}`);
+    console.log(`   Account IDs: ${accountIds ? accountIds.join(", ") : "N/A"}`);
+
+    if (!accountIds || !Array.isArray(accountIds) || accountIds.length === 0) {
+      return res.status(400).json({
+        error: "accountIds array is required and must not be empty",
+      });
+    }
+
+    if (!pattern || !scheduledAt) {
+      return res
+        .status(400)
+        .json({ error: "pattern and scheduledAt are required" });
+    }
+
+    // Validate pattern
+    const validPatterns = ["ONCE", "WEEKLY", "MONTHLY", "DATE_RANGE"];
+    if (!validPatterns.includes(pattern)) {
+      return res.status(400).json({
+        error: `Invalid pattern. Must be one of: ${validPatterns.join(", ")}`,
+      });
+    }
+
+    const scheduledDate = new Date(scheduledAt);
+    if (isNaN(scheduledDate.getTime())) {
+      return res.status(400).json({ error: "Invalid scheduledAt date format" });
+    }
+
+    if (scheduledDate <= new Date() && pattern === "ONCE") {
+      return res
+        .status(400)
+        .json({ error: "Scheduled time must be in the future" });
+    }
+
+    const scheduleConfig: ScheduleConfig = {
+      pattern,
+      scheduledAt: scheduledDate,
+      daysOfWeek,
+      dayOfMonth,
+      endDate: endDate ? new Date(endDate) : undefined,
+      time: time || "09:00",
+    };
+
+    const result = await postService.scheduleToMultipleAccounts(
+      postId,
+      scheduleConfig,
+      accountIds
+    );
+
+    console.log(`✅ Multi-account schedule successful`);
+    console.log(`   Created ${result.posts.length} posts`);
+    console.log(`   Group ID: ${result.groupId}`);
+
+    res.json({
+      success: true,
+      message: `Scheduled ${result.posts.length} posts to ${accountIds.length} account(s)`,
+      groupId: result.groupId,
+      posts: result.posts.map((p) => ({
+        _id: p._id,
+        threadsAccountId: p.threadsAccountId,
+        status: p.status,
+        scheduledAt: p.scheduledAt,
+        bulkPostId: p.bulkPostId,
+      })),
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error(`Multi-account schedule error: ${message}`, req.body);
+    res.status(400).json({ error: message });
+  }
+});
+
 // Cancel scheduled post
+
 router.post("/:id/cancel", async (req, res) => {
   try {
     const post = await postService.cancelSchedule(req.params.id);
@@ -668,6 +759,76 @@ router.post("/fix/stuck-publishing", async (req, res) => {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     res.status(500).json({ error: message });
+  }
+});
+
+// Duplicate post to other accounts
+router.post("/:id/duplicate", async (req, res) => {
+  try {
+    const { targetAccountIds } = req.body;
+
+    if (!targetAccountIds || !Array.isArray(targetAccountIds)) {
+      return res.status(400).json({
+        error: "targetAccountIds array is required",
+      });
+    }
+
+    if (targetAccountIds.length === 0) {
+      return res.status(400).json({
+        error: "At least one target account is required",
+      });
+    }
+
+    const result = await postService.duplicatePost(
+      req.params.id,
+      targetAccountIds
+    );
+
+    res.json({
+      success: true,
+      message: `Post duplicated to ${result.duplicatedPosts.length} account(s)`,
+      duplicatedPosts: result.duplicatedPosts.map((p) => ({
+        _id: p._id,
+        threadsAccountId: p.threadsAccountId,
+        content: p.content.substring(0, 50) + "...",
+        status: p.status,
+      })),
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error(`Duplicate post error: ${message}`);
+    res.status(400).json({ error: message });
+  }
+});
+
+// Bulk assign account
+router.post("/bulk-assign-account", async (req, res) => {
+  try {
+    const { postIds, targetAccountId } = req.body;
+
+    if (!postIds || !Array.isArray(postIds) || postIds.length === 0) {
+      return res.status(400).json({
+        error: "postIds array is required and must not be empty",
+      });
+    }
+
+    if (!targetAccountId) {
+      return res.status(400).json({
+        error: "targetAccountId is required",
+      });
+    }
+
+    const result = await postService.bulkAssignAccount(postIds, targetAccountId);
+
+    res.json({
+      success: true,
+      message: `Assigned ${result.modifiedCount} post(s) to account`,
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error(`Bulk assign account error: ${message}`);
+    res.status(400).json({ error: message });
   }
 });
 

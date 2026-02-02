@@ -10,7 +10,8 @@
     "dev:worker": "cd apps/backend && npm run worker",
     "build": "turbo run build",
     "lint": "turbo run lint",
-    "install:all": "npm install && cd apps/frontend && npm install && cd ../backend && npm install"
+    "install:all": "npm install && cd apps/frontend && npm install && cd ../backend && npm install",
+    "cleanup-stuck-posts": "cd apps/backend && tsx src/scripts/cleanupStuckPosts.ts"
   },
   "devDependencies": {
     "turbo": "^2.3.3",

@@ -298,6 +298,9 @@ export class ThreadsAdapter extends BasePlatformAdapter {
           );
           log.debug(` Comment container created: ${commentContainerId}`);
 
+          // WAIT for container to be ready - Fixes race condition (Code 24)
+          await this.waitForContainerStatus(commentContainerId, 60000); // 1 min timeout for comments
+
           lastCommentId = await this.publishContainer(commentContainerId);
           log.success(
             `💬 Comment part ${i + 1} published with ID: ${lastCommentId}`
@@ -314,6 +317,9 @@ export class ThreadsAdapter extends BasePlatformAdapter {
           comment
         );
         log.debug(` Comment container created: ${commentContainerId}`);
+
+        // WAIT for container to be ready - Fixes race condition (Code 24)
+        await this.waitForContainerStatus(commentContainerId, 60000); // 1 min timeout for comments
 
         lastCommentId = await this.publishContainer(commentContainerId);
         log.success(`💬 Comment published with ID: ${lastCommentId}`);

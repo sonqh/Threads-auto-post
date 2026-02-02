@@ -378,32 +378,54 @@ export class EventDrivenScheduler {
 
   /**
    * Schedule the next scheduler check based on earliest due post
+   * 🐛 BUG FIX #9: Add retry logic for better self-healing
    */
   async scheduleNextCheck(): Promise<void> {
-    try {
-      // Find the earliest scheduled post
-      const earliestPost = await Post.findOne({
-        status: PostStatus.SCHEDULED,
-      }).sort({ scheduledAt: 1 });
+    const maxRetries = 3;
+    let attempt = 0;
+    
+    while (attempt < maxRetries) {
+      try {
+        // Find the earliest scheduled post
+        const earliestPost = await Post.findOne({
+          status: PostStatus.SCHEDULED,
+        }).sort({ scheduledAt: 1 });
 
-      if (!earliestPost?.scheduledAt) {
-        log.info("📭 No upcoming scheduled posts");
-        await clearSchedulerState();
-        return;
+        if (!earliestPost?.scheduledAt) {
+          log.info("📭 No upcoming scheduled posts");
+          await clearSchedulerState();
+          return;
+        }
+
+        const nextCheckTime = earliestPost.scheduledAt;
+        await this.scheduleCheckAt(nextCheckTime);
+        return; // Success, exit retry loop
+      } catch (error) {
+        attempt++;
+        const isLastAttempt = attempt >= maxRetries;
+        
+        log.error(`Failed to schedule next check (attempt ${attempt}/${maxRetries}):`, {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        
+        if (isLastAttempt) {
+          log.error("❌ Scheduler failed to self-heal after retries. Manual intervention may be needed.");
+          // Clear state to allow fresh start
+          await clearSchedulerState();
+        } else {
+          // Exponential backoff: 1s, 2s, 4s
+          const backoffMs = Math.pow(2, attempt - 1) * 1000;
+          log.info(`⏳ Retrying in ${backoffMs}ms...`);
+          await new Promise(resolve => setTimeout(resolve, backoffMs));
+        }
       }
-
-      const nextCheckTime = earliestPost.scheduledAt;
-      await this.scheduleCheckAt(nextCheckTime);
-    } catch (error) {
-      log.error("Failed to schedule next check:", {
-        error: error instanceof Error ? error.message : String(error),
-      });
     }
   }
 
   /**
    * Schedule a check at a specific time
    * 🐛 BUG FIX #1: Use distributed lock to prevent race conditions
+   * 🐛 BUG FIX #8: Handle locked jobs gracefully
    */
   private async scheduleCheckAt(checkTime: Date): Promise<void> {
     const now = Date.now();
@@ -418,8 +440,24 @@ export class EventDrivenScheduler {
         if (existingJobId) {
           const existingJob = await schedulerQueue.getJob(existingJobId);
           if (existingJob) {
-            await existingJob.remove();
-            log.info(`Removed previous scheduler job: ${existingJobId}`);
+            // 🐛 BUG FIX #8: Check job state before removing
+            const state = await existingJob.getState();
+            
+            // Only remove if job is not locked (active)
+            if (state === "active" || state === "waiting-children") {
+              log.debug(`Skipping removal of active job ${existingJobId}, will replace on completion`);
+              // Don't remove active jobs - let them complete
+              // The new job will take over after the active one finishes
+            } else {
+              try {
+                await existingJob.remove();
+                log.info(`Removed previous scheduler job: ${existingJobId}`);
+              } catch (removeError: any) {
+                // If removal fails (e.g. job just became active), it's ok
+                // The job will auto-remove due to removeOnComplete setting
+                log.debug(`Could not remove job ${existingJobId}: ${removeError.message}`);
+              }
+            }
           }
         }
 

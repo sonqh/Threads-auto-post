@@ -3,6 +3,7 @@ import {
   PostStatus,
   PostType,
   IPost,
+  CommentStatus, // Import CommentStatus
   SchedulePattern,
   type ScheduleConfig,
 } from "../models/Post.js";
@@ -232,16 +233,42 @@ export class PostService {
       post.status = PostStatus.PUBLISHED;
       post.publishedAt = new Date();
       post.error = undefined;
+      
+      // Update comment status
+      if (result.commentResult) {
+        if (result.commentResult.success) {
+          post.commentStatus = CommentStatus.POSTED;
+          post.threadsCommentId = result.commentResult.commentId;
+          post.commentError = undefined;
+        } else {
+          post.commentStatus = CommentStatus.FAILED;
+          post.commentError = result.commentResult.error;
+          log.warn(`[${postId}] Post succeeded but comment failed`, { 
+            error: result.commentResult.error 
+          });
+        }
+      } else if (post.comment) {
+        // Comment existed but wasn't attempted (skipped?)
+        post.commentStatus = CommentStatus.NONE; 
+      }
+
       post.publishingProgress = {
         status: "published",
         startedAt: post.publishingProgress?.startedAt,
         completedAt: new Date(),
         currentStep: "Published successfully!",
       };
+      
+      // Warning if comment failed
+      if (post.commentStatus === CommentStatus.FAILED) {
+        post.publishingProgress.error = `Post published, but comment failed: ${post.commentError}`;
+      }
+      
       await post.save();
 
       log.success(`[${postId}] Publishing completed`, {
         threadsPostId: result.platformPostId,
+        commentStatus: post.commentStatus
       });
 
       return {

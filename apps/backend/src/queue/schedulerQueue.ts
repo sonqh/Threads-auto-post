@@ -179,8 +179,8 @@ export async function cleanupStaleJobs(): Promise<number> {
       // Remove completed or failed scheduler jobs older than 1 hour
       if (state === "completed" || state === "failed") {
         const jobAge = Date.now() - (job.processedOn || job.timestamp);
-        if (jobAge > 3600000) {
-          // 1 hour
+        if (jobAge > 60000) {
+          // 1 minute (reduced from 1 hour to keep queue clean)
           await job.remove();
           cleanedCount++;
         }
@@ -242,7 +242,13 @@ export async function validateSchedulerState(): Promise<boolean> {
     // Verify job is in delayed state
     const state = await job.getState();
     if (state !== "delayed" && state !== "waiting") {
-      log.warn(`Active job ${activeJobId} is in wrong state: ${state}`);
+      // If job is completed/failed/active, it means it ran or is running.
+      // We just need to clear state and reschedule. This is normal during restarts.
+      if (state === "completed" || state === "failed") {
+        log.debug(`Active job ${activeJobId} has finished (${state}), rebuilding state...`);
+      } else {
+        log.warn(`Active job ${activeJobId} is in unexpected state: ${state}`);
+      }
       return false;
     }
 

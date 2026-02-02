@@ -163,6 +163,11 @@ export class ThreadsAdapter extends BasePlatformAdapter {
 
       // Step 2: Publish the container
       // ✅ PHASE 2: Report progress
+      data.progressCallback?.("Waiting for media processing...");
+      
+      // WAIT for container to be ready - Fixes race condition (Code 24)
+      await this.waitForContainerStatus(containerId);
+      
       data.progressCallback?.("Publishing to Threads API...");
       log.info(`📤 Publishing container ${containerId}`);
       const postId = await this.publishContainer(containerId);
@@ -630,5 +635,75 @@ export class ThreadsAdapter extends BasePlatformAdapter {
 
     // Should not reach here, but just in case
     throw lastError || new Error("Failed to publish container after retries");
+  }
+
+  /**
+   * Check the status of a media container
+   */
+  async checkContainerStatus(containerId: string): Promise<{
+    status: "EXPIRED" | "ERROR" | "FINISHED" | "IN_PROGRESS" | "PUBLISHED";
+    errorMessage?: string;
+  }> {
+    try {
+      const response = await axios.get(
+        `${this.baseUrl}/${containerId}`,
+        {
+          params: {
+            fields: "status,error_message",
+            access_token: this.accessToken,
+          },
+        }
+      );
+      
+      const { status, error_message } = response.data;
+      return { status, errorMessage: error_message };
+    } catch (error) {
+      log.error(`Failed to check container status for ${containerId}`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Wait for a container to be ready for publishing
+   */
+  async waitForContainerStatus(
+    containerId: string, 
+    timeoutMs: number = 300000 // 5 minutes default timeout (video processing can be slow)
+  ): Promise<void> {
+    const startTime = Date.now();
+    const pollInterval = 5000; // Check every 5 seconds
+
+    log.info(`⏳ Waiting for container ${containerId} to be ready...`);
+
+    while (Date.now() - startTime < timeoutMs) {
+      const { status, errorMessage } = await this.checkContainerStatus(containerId);
+      
+      log.debug(` Container ${containerId} status: ${status}`);
+
+      if (status === "FINISHED") {
+        log.success(`✅ Container ${containerId} is ready for publishing`);
+        return;
+      }
+
+      if (status === "ERROR") {
+        throw new Error(`Container creation failed: ${errorMessage || "Unknown error"}`);
+      }
+
+      if (status === "PUBLISHED") {
+        log.warn(`⚠️ Container ${containerId} is already published`);
+        return;
+      }
+
+      if (status === "EXPIRED") {
+         throw new Error(`Container ${containerId} has expired`);
+      }
+
+      // Wait before next check
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+    }
+
+    throw new Error(`Timeout waiting for container ${containerId} to be ready`);
   }
 }

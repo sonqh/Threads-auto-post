@@ -197,7 +197,7 @@ router.post("/:id/schedule", async (req, res) => {
     console.log(`   Time: ${time}`);
     console.log(`   Days of Week: ${daysOfWeek || "N/A"}`);
     console.log(
-      `   Account IDs: ${accountIds ? accountIds.join(", ") : "N/A"}`
+      `   Account IDs: ${accountIds ? accountIds.join(", ") : "N/A"}`,
     );
 
     if (!pattern || !scheduledAt) {
@@ -249,7 +249,7 @@ router.post("/:id/schedule", async (req, res) => {
     const post = await postService.schedulePost(
       req.params.id,
       scheduleConfig,
-      accountId
+      accountId,
     );
     console.log(` Post scheduled successfully`);
     console.log(`   Updated Status: ${post.status}`);
@@ -281,7 +281,9 @@ router.post("/:id/schedule-multi-account", async (req, res) => {
     console.log(`   Post ID: ${postId}`);
     console.log(`   Pattern: ${pattern}`);
     console.log(`   Scheduled At: ${scheduledAt}`);
-    console.log(`   Account IDs: ${accountIds ? accountIds.join(", ") : "N/A"}`);
+    console.log(
+      `   Account IDs: ${accountIds ? accountIds.join(", ") : "N/A"}`,
+    );
 
     if (!accountIds || !Array.isArray(accountIds) || accountIds.length === 0) {
       return res.status(400).json({
@@ -326,7 +328,7 @@ router.post("/:id/schedule-multi-account", async (req, res) => {
     const result = await postService.scheduleToMultipleAccounts(
       postId,
       scheduleConfig,
-      accountIds
+      accountIds,
     );
 
     console.log(`✅ Multi-account schedule successful`);
@@ -408,8 +410,8 @@ router.post("/bulk-schedule", async (req, res) => {
     console.log(`   Parsed End: ${endDate.toISOString()}`);
     console.log(
       `   Duration: ${Math.round(
-        (endDate.getTime() - startDate.getTime()) / 60000
-      )} minutes`
+        (endDate.getTime() - startDate.getTime()) / 60000,
+      )} minutes`,
     );
 
     // Call the bulk scheduling service
@@ -421,7 +423,7 @@ router.post("/bulk-schedule", async (req, res) => {
         randomizeOrder,
         seed,
         accountId,
-      }
+      },
     );
 
     console.log(` Bulk schedule completed successfully`);
@@ -441,7 +443,7 @@ router.post("/bulk-schedule", async (req, res) => {
         start: startDate.toISOString(),
         end: endDate.toISOString(),
         durationMinutes: Math.round(
-          (endDate.getTime() - startDate.getTime()) / 60000
+          (endDate.getTime() - startDate.getTime()) / 60000,
         ),
       },
     });
@@ -624,7 +626,7 @@ router.get("/debug/scheduler-status", async (req, res) => {
         timeDiffFormatted: isDue
           ? `${Math.abs(secondsDiff)}s ago`
           : `in ${Math.floor(secondsDiff / 3600)}h ${Math.floor(
-              (secondsDiff % 3600) / 60
+              (secondsDiff % 3600) / 60,
             )}m`,
         pattern: post.scheduleConfig?.pattern || "ONCE",
       };
@@ -781,7 +783,7 @@ router.post("/:id/duplicate", async (req, res) => {
 
     const result = await postService.duplicatePost(
       req.params.id,
-      targetAccountIds
+      targetAccountIds,
     );
 
     res.json({
@@ -818,7 +820,10 @@ router.post("/bulk-assign-account", async (req, res) => {
       });
     }
 
-    const result = await postService.bulkAssignAccount(postIds, targetAccountId);
+    const result = await postService.bulkAssignAccount(
+      postIds,
+      targetAccountId,
+    );
 
     res.json({
       success: true,
@@ -828,6 +833,45 @@ router.post("/bulk-assign-account", async (req, res) => {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error(`Bulk assign account error: ${message}`);
+    res.status(400).json({ error: message });
+  }
+});
+
+// Bulk update status
+router.post("/bulk-update-status", async (req, res) => {
+  try {
+    const { postIds, newStatus } = req.body;
+
+    if (!postIds || !Array.isArray(postIds) || postIds.length === 0) {
+      return res.status(400).json({
+        error: "postIds array is required and must not be empty",
+      });
+    }
+
+    if (!newStatus) {
+      return res.status(400).json({
+        error: "newStatus is required",
+      });
+    }
+
+    // Validate status is a valid PostStatus
+    const validStatuses = Object.values(PostStatus);
+    if (!validStatuses.includes(newStatus)) {
+      return res.status(400).json({
+        error: `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
+      });
+    }
+
+    const result = await postService.bulkUpdateStatus(postIds, newStatus);
+
+    res.json({
+      success: true,
+      message: `Updated status for ${result.modifiedCount} post(s)`,
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error(`Bulk update status error: ${message}`);
     res.status(400).json({ error: message });
   }
 });

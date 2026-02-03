@@ -116,7 +116,7 @@ export class PostService {
    */
   async publishPost(
     postId: string,
-    accountId?: string
+    accountId?: string,
   ): Promise<{
     success: boolean;
     threadsPostId?: string;
@@ -155,7 +155,7 @@ export class PostService {
       if (effectiveAccountId) {
         logger.info(
           `Looking up credential for account: ${effectiveAccountId}`,
-          { postId }
+          { postId },
         );
         credential = await threadsService.getCredentialById(effectiveAccountId);
 
@@ -164,16 +164,16 @@ export class PostService {
             `✅ Using account-specific credential: ${
               credential.threadsUserId
             } (${credential.accountName || "unnamed"})`,
-            { postId, accountId: effectiveAccountId }
+            { postId, accountId: effectiveAccountId },
           );
         } else {
           logger.error(
             `❌ Credential ${effectiveAccountId} not found in database!`,
-            { postId, accountId: effectiveAccountId }
+            { postId, accountId: effectiveAccountId },
           );
           // Don't silently fall back - this is likely a configuration error
           throw new Error(
-            `Credential not found for account ID: ${effectiveAccountId}. Please check your account configuration.`
+            `Credential not found for account ID: ${effectiveAccountId}. Please check your account configuration.`,
           );
         }
       }
@@ -181,16 +181,16 @@ export class PostService {
       // Only fall back to environment credential if NO account was specified at all
       if (!credential && !effectiveAccountId) {
         logger.warn(
-          `⚠️ No account specified for post ${postId}, using default .env credentials`
+          `⚠️ No account specified for post ${postId}, using default .env credentials`,
         );
         credential = await threadsService.getValidCredential(
-          process.env.THREADS_USER_ID || ""
+          process.env.THREADS_USER_ID || "",
         );
       }
 
       if (!credential) {
         throw new Error(
-          "Unable to get valid Threads credentials for publishing"
+          "Unable to get valid Threads credentials for publishing",
         );
       }
 
@@ -203,7 +203,7 @@ export class PostService {
       // Update ThreadsAdapter with actual credentials
       const adapter = new ThreadsAdapter(
         credential.threadsUserId,
-        credential.accessToken
+        credential.accessToken,
       );
 
       // Track progress through adapter
@@ -212,7 +212,7 @@ export class PostService {
         post
           .save()
           .catch((err) =>
-            log.error("Failed to save progress", { error: err.message })
+            log.error("Failed to save progress", { error: err.message }),
           );
       };
 
@@ -233,7 +233,7 @@ export class PostService {
       post.status = PostStatus.PUBLISHED;
       post.publishedAt = new Date();
       post.error = undefined;
-      
+
       // Update comment status
       if (result.commentResult) {
         if (result.commentResult.success) {
@@ -243,13 +243,13 @@ export class PostService {
         } else {
           post.commentStatus = CommentStatus.FAILED;
           post.commentError = result.commentResult.error;
-          log.warn(`[${postId}] Post succeeded but comment failed`, { 
-            error: result.commentResult.error 
+          log.warn(`[${postId}] Post succeeded but comment failed`, {
+            error: result.commentResult.error,
           });
         }
       } else if (post.comment) {
         // Comment existed but wasn't attempted (skipped?)
-        post.commentStatus = CommentStatus.NONE; 
+        post.commentStatus = CommentStatus.NONE;
       }
 
       post.publishingProgress = {
@@ -258,17 +258,17 @@ export class PostService {
         completedAt: new Date(),
         currentStep: "Published successfully!",
       };
-      
+
       // Warning if comment failed
       if (post.commentStatus === CommentStatus.FAILED) {
         post.publishingProgress.error = `Post published, but comment failed: ${post.commentError}`;
       }
-      
+
       await post.save();
 
       log.success(`[${postId}] Publishing completed`, {
         threadsPostId: result.platformPostId,
-        commentStatus: post.commentStatus
+        commentStatus: post.commentStatus,
       });
 
       return {
@@ -332,7 +332,7 @@ export class PostService {
   async schedulePost(
     postId: string,
     config: ScheduleConfig,
-    accountId?: string
+    accountId?: string,
   ): Promise<IPost> {
     console.log(`\n📅 PostService.schedulePost() called:`);
     console.log(`   Post ID: ${postId}`);
@@ -387,7 +387,7 @@ export class PostService {
   async scheduleToMultipleAccounts(
     sourcePostId: string,
     config: ScheduleConfig,
-    accountIds: string[]
+    accountIds: string[],
   ): Promise<{
     success: boolean;
     groupId: string;
@@ -404,7 +404,9 @@ export class PostService {
 
     // Get source post
     const sourcePost = await this.getPost(sourcePostId);
-    console.log(`   Found source post: "${sourcePost.content.substring(0, 40)}..."`);
+    console.log(
+      `   Found source post: "${sourcePost.content.substring(0, 40)}..."`,
+    );
 
     // Validate
     this.validatePostForPublishing(sourcePost);
@@ -441,17 +443,22 @@ export class PostService {
         try {
           await eventDrivenScheduler.onPostScheduled(
             newPost._id.toString(),
-            config.scheduledAt
+            config.scheduledAt,
           );
           console.log(`   ✅ Scheduler notified for post ${newPost._id}`);
         } catch (err) {
-          console.error(`   ❌ Failed to notify scheduler for post ${newPost._id}:`, err);
+          console.error(
+            `   ❌ Failed to notify scheduler for post ${newPost._id}:`,
+            err,
+          );
           // Don't throw - post is already saved, scheduler will pick it up
         }
       }
     }
 
-    console.log(`\n✅ Scheduled ${scheduledPosts.length} posts to ${accountIds.length} accounts`);
+    console.log(
+      `\n✅ Scheduled ${scheduledPosts.length} posts to ${accountIds.length} accounts`,
+    );
     console.log(`   Group ID: ${groupId}`);
     console.log(`   Scheduled At: ${config.scheduledAt.toISOString()}`);
 
@@ -548,7 +555,7 @@ export class PostService {
       randomizeOrder?: boolean;
       seed?: number;
       accountId?: string;
-    }
+    },
   ): Promise<
     Array<{
       post: IPost;
@@ -577,8 +584,8 @@ export class PostService {
     if (totalDuration < requiredMinTime) {
       throw new Error(
         `Time range too short. Need at least ${Math.ceil(
-          requiredMinTime / 60000
-        )} minutes for ${postCount} posts with 5-minute minimum gaps`
+          requiredMinTime / 60000,
+        )} minutes for ${postCount} posts with 5-minute minimum gaps`,
       );
     }
 
@@ -672,21 +679,21 @@ export class PostService {
       const post = await this.schedulePost(
         postId,
         scheduleConfig,
-        options?.accountId
+        options?.accountId,
       );
       results.push({ post, scheduledAt });
 
       log.info(
         `📅 Scheduled post ${
           i + 1
-        }/${postCount}: ${postId} at ${scheduledAt.toISOString()}`
+        }/${postCount}: ${postId} at ${scheduledAt.toISOString()}`,
       );
     }
 
     log.success(
       ` Bulk scheduled ${
         results.length
-      } posts from ${startTime.toISOString()} to ${endTime.toISOString()}`
+      } posts from ${startTime.toISOString()} to ${endTime.toISOString()}`,
     );
 
     return results;
@@ -747,7 +754,7 @@ export class PostService {
     }
 
     log.info(
-      `Bulk cancel completed: ${cancelled} cancelled, ${alreadyPublished} already published, ${notFound} not found`
+      `Bulk cancel completed: ${cancelled} cancelled, ${alreadyPublished} already published, ${notFound} not found`,
     );
 
     return { cancelled, alreadyPublished, notFound };
@@ -781,7 +788,7 @@ export class PostService {
       (!post.imageUrls || post.imageUrls.length === 0)
     ) {
       throw new Error(
-        `${post.postType} posts require at least one image/video URL`
+        `${post.postType} posts require at least one image/video URL`,
       );
     }
   }
@@ -791,7 +798,7 @@ export class PostService {
    */
   async duplicatePost(
     postId: string,
-    targetAccountIds: string[]
+    targetAccountIds: string[],
   ): Promise<{ success: boolean; duplicatedPosts: IPost[] }> {
     const original = await this.getPost(postId);
     const duplicates: IPost[] = [];
@@ -814,7 +821,7 @@ export class PostService {
 
     log.info(
       `Duplicated post ${postId} to ${targetAccountIds.length} account(s)`,
-      { targetAccountIds }
+      { targetAccountIds },
     );
 
     return { success: true, duplicatedPosts: duplicates };
@@ -825,16 +832,36 @@ export class PostService {
    */
   async bulkAssignAccount(
     postIds: string[],
-    targetAccountId: string
+    targetAccountId: string,
   ): Promise<{ success: boolean; modifiedCount: number }> {
     const result = await Post.updateMany(
       { _id: { $in: postIds } },
-      { $set: { threadsAccountId: targetAccountId } }
+      { $set: { threadsAccountId: targetAccountId } },
     );
 
     log.info(
       `Bulk assigned ${result.modifiedCount} posts to account ${targetAccountId}`,
-      { postIds: postIds.length }
+      { postIds: postIds.length },
+    );
+
+    return { success: true, modifiedCount: result.modifiedCount || 0 };
+  }
+
+  /**
+   * Bulk update status for multiple posts
+   */
+  async bulkUpdateStatus(
+    postIds: string[],
+    newStatus: PostStatus,
+  ): Promise<{ success: boolean; modifiedCount: number }> {
+    const result = await Post.updateMany(
+      { _id: { $in: postIds } },
+      { $set: { status: newStatus } },
+    );
+
+    log.info(
+      `Bulk updated status to ${newStatus} for ${result.modifiedCount} posts`,
+      { postIds: postIds.length },
     );
 
     return { success: true, modifiedCount: result.modifiedCount || 0 };

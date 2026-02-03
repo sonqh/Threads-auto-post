@@ -116,7 +116,7 @@ export const postsApi = {
       endDate?: string;
       time?: string;
     },
-    accountIds?: string[]
+    accountIds?: string[],
   ): Promise<Post> {
     const response = await axios.post(`${API_BASE_URL}/posts/${id}/schedule`, {
       ...config,
@@ -135,7 +135,7 @@ export const postsApi = {
       endDate?: string;
       time?: string;
     },
-    accountIds: string[]
+    accountIds: string[],
   ): Promise<{
     success: boolean;
     message: string;
@@ -153,13 +153,12 @@ export const postsApi = {
       {
         ...config,
         accountIds,
-      }
+      },
     );
     return response.data;
   },
 
   async getPublishingProgress(id: string): Promise<{
-
     status: "pending" | "publishing" | "published" | "failed";
     startedAt?: string;
     completedAt?: string;
@@ -177,7 +176,7 @@ export const postsApi = {
 
   async publishPost(
     id: string,
-    accountId?: string
+    accountId?: string,
   ): Promise<{
     success: boolean;
     threadsPostId?: string;
@@ -186,7 +185,7 @@ export const postsApi = {
   }> {
     const response = await axios.post(
       `${API_BASE_URL}/posts/${id}/publish`,
-      accountId ? { accountId } : {}
+      accountId ? { accountId } : {},
     );
     return response.data;
   },
@@ -199,7 +198,7 @@ export const postsApi = {
       randomizeOrder?: boolean;
       seed?: number;
       accountId?: string;
-    }
+    },
   ): Promise<{
     success: boolean;
     count: number;
@@ -237,6 +236,24 @@ export const postsApi = {
     return response.data;
   },
 
+  async bulkUpdateStatus(
+    postIds: string[],
+    newStatus: string,
+  ): Promise<{
+    success: boolean;
+    modifiedCount: number;
+    message: string;
+  }> {
+    const response = await axios.post(
+      `${API_BASE_URL}/posts/bulk-update-status`,
+      {
+        postIds,
+        newStatus,
+      },
+    );
+    return response.data;
+  },
+
   async retryPost(id: string): Promise<{
     success: boolean;
     message: string;
@@ -257,7 +274,7 @@ export const postsApi = {
 
   async duplicatePost(
     id: string,
-    targetAccountIds: string[]
+    targetAccountIds: string[],
   ): Promise<{
     success: boolean;
     message: string;
@@ -276,7 +293,7 @@ export const postsApi = {
 
   async bulkAssignAccount(
     postIds: string[],
-    targetAccountId: string
+    targetAccountId: string,
   ): Promise<{
     success: boolean;
     message: string;
@@ -287,7 +304,7 @@ export const postsApi = {
       {
         postIds,
         targetAccountId,
-      }
+      },
     );
     return response.data;
   },
@@ -335,25 +352,25 @@ export const monitoringApi = {
       `${API_BASE_URL}/posts/monitoring/jobs/recent`,
       {
         params: { limit },
-      }
+      },
     );
     return response.data;
   },
 
   async getJobsByState(
     state: "active" | "completed" | "failed" | "delayed" | "waiting",
-    limit: number = 20
+    limit: number = 20,
   ): Promise<JobRecord[]> {
     const response = await axios.get(
       `${API_BASE_URL}/posts/monitoring/jobs/state/${state}`,
-      { params: { limit } }
+      { params: { limit } },
     );
     return response.data;
   },
 
   async getJobDetails(jobId: string): Promise<JobRecord | null> {
     const response = await axios.get(
-      `${API_BASE_URL}/posts/monitoring/jobs/${jobId}`
+      `${API_BASE_URL}/posts/monitoring/jobs/${jobId}`,
     );
     return response.data;
   },
@@ -374,7 +391,7 @@ export const excelApi = {
       formData,
       {
         headers: { "Content-Type": "multipart/form-data" },
-      }
+      },
     );
     return response.data;
   },
@@ -405,14 +422,14 @@ export const excelApi = {
       formData,
       {
         headers: { "Content-Type": "multipart/form-data" },
-      }
+      },
     );
     return response.data;
   },
 
   async bulkSchedule(
     postIds: string[],
-    scheduledAt: string
+    scheduledAt: string,
   ): Promise<{
     success: boolean;
     scheduled: number;

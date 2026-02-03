@@ -62,43 +62,52 @@ export const PostsTable = ({
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRowComponent>
-          <TableHead className="w-12">
-            <Checkbox checked={allSelected} onCheckedChange={handleSelectAll} />
-          </TableHead>
-          <TableHead>Content</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>Type</TableHead>
-          <TableHead>Account</TableHead>
-          <TableHead>Links</TableHead>
-          <TableHead>Comment</TableHead>
-          <TableHead>Scheduled</TableHead>
-          <TableHead>Topic</TableHead>
-          <TableHead className="text-right">Actions</TableHead>
-        </TableRowComponent>
-      </TableHeader>
-      <TableBody>
-        {posts.map((post) => (
-          <PostRow
-            key={post._id}
-            post={post}
-            selected={selectedIds.has(post._id)}
-            onSelect={onSelectPost}
-            onEdit={onEditPost}
-            onPublish={onPublish}
-            onSchedule={onSchedule}
-            onCancel={onCancel}
-            onDelete={onDelete}
-            onFixStuck={onFixStuck}
-            onPostRecovered={onPostRecovered}
-            onDuplicateToAccount={onDuplicateToAccount}
-            publishing={publishingIds?.has(post._id)}
-            credentials={credentials}
-          />
-        ))}
-      </TableBody>
-    </Table>
+    <div className="overflow-x-auto relative">
+      <Table>
+        <TableHeader>
+          <TableRowComponent>
+            <TableHead className="w-12 sticky left-0 z-20 bg-white shadow-[2px_0_4px_rgba(0,0,0,0.05)]">
+              <Checkbox
+                checked={allSelected}
+                onCheckedChange={handleSelectAll}
+              />
+            </TableHead>
+            <TableHead className="min-w-[300px] max-w-[500px]">
+              Content
+            </TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Type</TableHead>
+            <TableHead>Account</TableHead>
+            <TableHead>Links</TableHead>
+            <TableHead>Comment</TableHead>
+            <TableHead>Scheduled</TableHead>
+            <TableHead>Topic</TableHead>
+            <TableHead className="text-right sticky right-0 z-20 bg-white shadow-[-2px_0_4px_rgba(0,0,0,0.05)] min-w-[180px]">
+              Actions
+            </TableHead>
+          </TableRowComponent>
+        </TableHeader>
+        <TableBody>
+          {posts.map((post) => (
+            <PostRow
+              key={post._id}
+              post={post}
+              selected={selectedIds.has(post._id)}
+              onSelect={onSelectPost}
+              onEdit={onEditPost}
+              onPublish={onPublish}
+              onSchedule={onSchedule}
+              onCancel={onCancel}
+              onDelete={onDelete}
+              onFixStuck={onFixStuck}
+              onPostRecovered={onPostRecovered}
+              onDuplicateToAccount={onDuplicateToAccount}
+              publishing={publishingIds?.has(post._id)}
+              credentials={credentials}
+            />
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 };

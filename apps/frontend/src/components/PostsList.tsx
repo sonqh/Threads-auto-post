@@ -81,6 +81,10 @@ export const PostsList: React.FC = () => {
     "createdAt" | "scheduledAt" | "publishedAt"
   >("createdAt");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [showBulkStatusModal, setShowBulkStatusModal] = useState(false);
+  const [bulkStatusValue, setBulkStatusValue] = useState<PostStatusType>(
+    PostStatus.DRAFT,
+  );
   const [postTypeFilter, setPostTypeFilter] = useState<string | "">(() => {
     // Read postType from URL on mount
     const params = new URLSearchParams(window.location.search);
@@ -97,7 +101,7 @@ export const PostsList: React.FC = () => {
         Object.values(PostStatus).includes(statusParam as PostStatusType)
         ? (statusParam as PostStatusType)
         : "";
-    }
+    },
   );
 
   // Calculate post counts per account for quick switcher
@@ -159,7 +163,7 @@ export const PostsList: React.FC = () => {
       selectedStatus || undefined,
       page,
       undefined,
-      selectedAccountId || undefined
+      selectedAccountId || undefined,
     );
   }, [selectedStatus, page, selectedAccountId, fetchPosts]);
 
@@ -182,7 +186,7 @@ export const PostsList: React.FC = () => {
         selectedStatus || undefined,
         0,
         undefined,
-        selectedAccountId || undefined
+        selectedAccountId || undefined,
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -209,7 +213,7 @@ export const PostsList: React.FC = () => {
         setSelectedPosts(new Set());
       }
     },
-    [posts]
+    [posts],
   );
 
   // Handler for sorting
@@ -224,7 +228,7 @@ export const PostsList: React.FC = () => {
         setSortDirection("desc");
       }
     },
-    [sortBy]
+    [sortBy],
   );
 
   // Sort posts in memory
@@ -280,14 +284,14 @@ export const PostsList: React.FC = () => {
           selectedStatus || undefined,
           page,
           undefined,
-          selectedAccountId || undefined
+          selectedAccountId || undefined,
         );
       } catch (error) {
         console.error("Failed to delete posts:", error);
         alert("Failed to delete posts. Please try again.");
       }
     },
-    [bulkDelete, fetchPosts, selectedStatus, page, selectedAccountId]
+    [bulkDelete, fetchPosts, selectedStatus, page, selectedAccountId],
   );
 
   const handleBulkSchedule = useCallback(
@@ -301,14 +305,14 @@ export const PostsList: React.FC = () => {
           selectedStatus || undefined,
           page,
           undefined,
-          selectedAccountId || undefined
+          selectedAccountId || undefined,
         );
       } catch (error) {
         console.error("Failed to schedule posts:", error);
         alert("Failed to schedule posts. Please try again.");
       }
     },
-    [schedulePost, fetchPosts, selectedStatus, page, selectedAccountId]
+    [schedulePost, fetchPosts, selectedStatus, page, selectedAccountId],
   );
 
   const handleBulkCancel = useCallback(
@@ -321,14 +325,50 @@ export const PostsList: React.FC = () => {
           selectedStatus || undefined,
           page,
           undefined,
-          selectedAccountId || undefined
+          selectedAccountId || undefined,
         );
       } catch (error) {
         console.error("Failed to cancel schedules:", error);
         alert("Failed to cancel schedules. Please try again.");
       }
     },
-    [fetchPosts, selectedStatus, page]
+    [fetchPosts, selectedStatus, page],
+  );
+
+  const handleBulkEditStatus = useCallback(() => {
+    if (selectedPosts.size === 0) {
+      alert("No posts selected");
+      return;
+    }
+    setShowBulkStatusModal(true);
+  }, [selectedPosts]);
+
+  const handleBulkStatusSubmit = useCallback(
+    async (newStatus: PostStatusType) => {
+      if (selectedPosts.size === 0) return;
+
+      try {
+        const result = await postsApi.bulkUpdateStatus(
+          Array.from(selectedPosts),
+          newStatus,
+        );
+        alert(
+          `Successfully updated status for ${result.modifiedCount} post(s)`,
+        );
+        setSelectedPosts(new Set());
+        setShowBulkStatusModal(false);
+        await fetchPosts(
+          selectedStatus || undefined,
+          page,
+          undefined,
+          selectedAccountId || undefined,
+        );
+      } catch (error) {
+        console.error("Failed to update status:", error);
+        alert("Failed to update status. Please try again.");
+      }
+    },
+    [selectedPosts, fetchPosts, selectedStatus, page, selectedAccountId],
   );
 
   // Handler for new bulk schedule with random distribution
@@ -336,7 +376,7 @@ export const PostsList: React.FC = () => {
     async (
       startTime: string,
       endTime: string,
-      options: { randomizeOrder: boolean; accountId?: string }
+      options: { randomizeOrder: boolean; accountId?: string },
     ) => {
       if (selectedPosts.size === 0) {
         alert("No posts selected");
@@ -348,7 +388,7 @@ export const PostsList: React.FC = () => {
           Array.from(selectedPosts),
           startTime,
           endTime,
-          options
+          options,
         );
 
         console.log(" Bulk schedule response:", response);
@@ -360,7 +400,7 @@ export const PostsList: React.FC = () => {
           selectedStatus || undefined,
           page,
           undefined,
-          selectedAccountId || undefined
+          selectedAccountId || undefined,
         );
       } catch (error) {
         console.error("Failed to bulk schedule posts:", error);
@@ -369,7 +409,7 @@ export const PostsList: React.FC = () => {
         alert(`Error: ${errorMsg}`);
       }
     },
-    [selectedPosts, fetchPosts, selectedStatus, page, selectedAccountId]
+    [selectedPosts, fetchPosts, selectedStatus, page, selectedAccountId],
   );
 
   // Handlers - Single Post Actions
@@ -383,14 +423,14 @@ export const PostsList: React.FC = () => {
           selectedStatus || undefined,
           page,
           undefined,
-          selectedAccountId || undefined
+          selectedAccountId || undefined,
         );
       } catch (error) {
         console.error("Failed to delete post:", error);
         alert("Failed to delete post. Please try again.");
       }
     },
-    [deletePost, fetchPosts, selectedStatus, page, selectedAccountId]
+    [deletePost, fetchPosts, selectedStatus, page, selectedAccountId],
   );
 
   const handlePublish = useCallback(
@@ -422,7 +462,7 @@ export const PostsList: React.FC = () => {
               selectedStatus || undefined,
               page,
               undefined,
-              selectedAccountId || undefined
+              selectedAccountId || undefined,
             );
             return;
           }
@@ -435,14 +475,14 @@ export const PostsList: React.FC = () => {
           selectedStatus || undefined,
           page,
           undefined,
-          selectedAccountId || undefined
+          selectedAccountId || undefined,
         );
       } catch (error) {
         console.error("Failed to publish:", error);
         alert("Failed to publish post. Please try again.");
       }
     },
-    [posts, publish, fetchPosts, selectedStatus, page, selectedAccountId]
+    [posts, publish, fetchPosts, selectedStatus, page, selectedAccountId],
   );
 
   const handleFixStuck = useCallback(
@@ -454,7 +494,7 @@ export const PostsList: React.FC = () => {
           selectedStatus || undefined,
           page,
           undefined,
-          selectedAccountId || undefined
+          selectedAccountId || undefined,
         );
         alert("Post fixed! Status updated.");
       } catch (error) {
@@ -462,7 +502,7 @@ export const PostsList: React.FC = () => {
         alert("Failed to fix stuck post. Please try again.");
       }
     },
-    [fetchPosts, selectedStatus, page, selectedAccountId]
+    [fetchPosts, selectedStatus, page, selectedAccountId],
   );
 
   const handlePostRecovered = useCallback(
@@ -472,10 +512,10 @@ export const PostsList: React.FC = () => {
         selectedStatus || undefined,
         page,
         undefined,
-        selectedAccountId || undefined
+        selectedAccountId || undefined,
       );
     },
-    [fetchPosts, selectedStatus, page, selectedAccountId]
+    [fetchPosts, selectedStatus, page, selectedAccountId],
   );
 
   const handleSchedule = useCallback((postId: string) => {
@@ -500,7 +540,7 @@ export const PostsList: React.FC = () => {
         if (!currentAccountId && credentials.length > 1) {
           // No account selected = schedule to ALL accounts
           console.log(`📅 Scheduling to ALL ${credentials.length} accounts`);
-          
+
           const accountIds = credentials.map((c) => c.id);
           const result = await postsApi.scheduleToMultipleAccounts(
             schedulingPostId,
@@ -512,12 +552,14 @@ export const PostsList: React.FC = () => {
               endDate: config.endDate,
               time: config.time,
             },
-            accountIds
+            accountIds,
           );
 
-          console.log(`✅ Multi-account schedule success: ${result.posts.length} posts created`);
+          console.log(
+            `✅ Multi-account schedule success: ${result.posts.length} posts created`,
+          );
           alert(
-            `✅ Scheduled ${result.posts.length} posts to ${accountIds.length} accounts!`
+            `✅ Scheduled ${result.posts.length} posts to ${accountIds.length} accounts!`,
           );
         } else {
           // Single account scheduling (existing behavior)
@@ -534,7 +576,7 @@ export const PostsList: React.FC = () => {
           selectedStatus || undefined,
           page,
           undefined,
-          selectedAccountId || undefined
+          selectedAccountId || undefined,
         );
         setShowSchedulerModal(false);
         setSchedulingPostId(null);
@@ -551,7 +593,7 @@ export const PostsList: React.FC = () => {
       page,
       selectedAccountId,
       credentials,
-    ]
+    ],
   );
 
   const handleCancel = useCallback(
@@ -562,14 +604,14 @@ export const PostsList: React.FC = () => {
           selectedStatus || undefined,
           page,
           undefined,
-          selectedAccountId || undefined
+          selectedAccountId || undefined,
         );
       } catch (error) {
         console.error("Failed to cancel schedule:", error);
         alert("Failed to cancel schedule. Please try again.");
       }
     },
-    [cancelSchedule, fetchPosts, selectedStatus, page, selectedAccountId]
+    [cancelSchedule, fetchPosts, selectedStatus, page, selectedAccountId],
   );
 
   // Handlers - Edit Modal
@@ -616,7 +658,7 @@ export const PostsList: React.FC = () => {
         selectedStatus || undefined,
         page,
         undefined,
-        selectedAccountId || undefined
+        selectedAccountId || undefined,
       );
     },
     [
@@ -626,7 +668,7 @@ export const PostsList: React.FC = () => {
       selectedStatus,
       page,
       selectedAccountId,
-    ]
+    ],
   );
 
   const handleCloseEditModal = useCallback(() => {
@@ -641,10 +683,10 @@ export const PostsList: React.FC = () => {
         selectedStatus || undefined,
         newPage,
         undefined,
-        selectedAccountId || undefined
+        selectedAccountId || undefined,
       );
     },
-    [fetchPosts, selectedStatus]
+    [fetchPosts, selectedStatus],
   );
 
   const handlePageSizeChange = useCallback(
@@ -655,10 +697,10 @@ export const PostsList: React.FC = () => {
         selectedStatus || undefined,
         0,
         newSize,
-        selectedAccountId || undefined
+        selectedAccountId || undefined,
       );
     },
-    [fetchPosts, selectedStatus, setLimit, selectedAccountId]
+    [fetchPosts, selectedStatus, setLimit, selectedAccountId],
   );
 
   // Export functionality
@@ -678,7 +720,7 @@ export const PostsList: React.FC = () => {
       ]),
     ]
       .map((row) =>
-        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")
+        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","),
       )
       .join("\n");
 
@@ -697,20 +739,20 @@ export const PostsList: React.FC = () => {
       try {
         const result = await postsApi.duplicatePost(postId, [targetAccountId]);
         alert(
-          `Successfully duplicated post to ${result.duplicatedPosts.length} account(s)`
+          `Successfully duplicated post to ${result.duplicatedPosts.length} account(s)`,
         );
         await fetchPosts(
           selectedStatus || undefined,
           page,
           undefined,
-          selectedAccountId || undefined
+          selectedAccountId || undefined,
         );
       } catch (error) {
         console.error("Failed to duplicate post:", error);
         alert("Failed to duplicate post. Please try again.");
       }
     },
-    [fetchPosts, selectedStatus, page, selectedAccountId]
+    [fetchPosts, selectedStatus, page, selectedAccountId],
   );
 
   return (
@@ -732,8 +774,8 @@ export const PostsList: React.FC = () => {
                 !selectedAccountId
                   ? "Please select a specific account to create a new post"
                   : credentials.length === 0
-                  ? "No accounts available"
-                  : "Create new post"
+                    ? "No accounts available"
+                    : "Create new post"
               }
             >
               <Plus className="h-4 w-4 mr-2" />
@@ -910,6 +952,7 @@ export const PostsList: React.FC = () => {
               onBulkSchedule={handleBulkSchedule}
               onBulkScheduleRandom={() => setShowBulkSchedulerModal(true)}
               onBulkCancel={handleBulkCancel}
+              onBulkEditStatus={handleBulkEditStatus}
             />
 
             {/* Sorting Controls */}
@@ -1031,6 +1074,54 @@ export const PostsList: React.FC = () => {
           onSchedule={handleBulkScheduleWithRandomDistribution}
           postCount={selectedPosts.size}
         />
+
+        {/* Bulk Status Edit Modal */}
+        {showBulkStatusModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+              <h3 className="text-lg font-semibold mb-4">
+                Edit Status for {selectedPosts.size} Post(s)
+              </h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    New Status
+                  </label>
+                  <Select
+                    value={bulkStatusValue}
+                    onValueChange={(value) =>
+                      setBulkStatusValue(value as PostStatusType)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.values(PostStatus).map((status) => (
+                        <SelectItem key={status} value={status}>
+                          {status}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowBulkStatusModal(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => handleBulkStatusSubmit(bulkStatusValue)}
+                  >
+                    Update Status
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

@@ -64,8 +64,9 @@ export const PostRow: React.FC<PostRowProps> = ({
 
   // Enhanced status badge with modern design
   const getStatusBadge = (status: PostStatusType): string => {
-    const baseClasses = "px-3 py-1 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 transition-all";
-    
+    const baseClasses =
+      "px-3 py-1 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 transition-all";
+
     switch (status) {
       case "DRAFT":
         return `${baseClasses} bg-gray-100 text-gray-700 border border-gray-200`;
@@ -160,7 +161,7 @@ export const PostRow: React.FC<PostRowProps> = ({
   return (
     <>
       <TableRowComponent>
-        <TableCell>
+        <TableCell className="sticky left-0 z-10 bg-white shadow-[2px_0_4px_rgba(0,0,0,0.05)]">
           <Checkbox
             checked={selected}
             onCheckedChange={() => onSelect(post._id)}
@@ -187,13 +188,18 @@ export const PostRow: React.FC<PostRowProps> = ({
           {/* Compact Status Badge */}
           <div className="flex items-center gap-2">
             <span className={getStatusBadge(post.status as PostStatusType)}>
-              <span className="text-sm">{getStatusIcon(post.status as PostStatusType)}</span>
+              <span className="text-sm">
+                {getStatusIcon(post.status as PostStatusType)}
+              </span>
               <span>{post.status}</span>
             </span>
 
             {/* Compact Progress Indicator (Publishing only) */}
             {post.status === "PUBLISHING" && post.publishingProgress && (
-              <div className="flex items-center gap-1.5" title={post.publishingProgress.currentStep || "Publishing..."}>
+              <div
+                className="flex items-center gap-1.5"
+                title={post.publishingProgress.currentStep || "Publishing..."}
+              >
                 <ProgressSpinner
                   isActive={true}
                   currentStep={post.publishingProgress.currentStep}
@@ -202,8 +208,11 @@ export const PostRow: React.FC<PostRowProps> = ({
                 {post.publishingProgress.startedAt && (
                   <span className="text-xs text-gray-400">
                     {Math.floor(
-                      (Date.now() - new Date(post.publishingProgress.startedAt).getTime()) / 1000
-                    )}s
+                      (Date.now() -
+                        new Date(post.publishingProgress.startedAt).getTime()) /
+                        1000,
+                    )}
+                    s
                   </span>
                 )}
               </div>
@@ -276,7 +285,7 @@ export const PostRow: React.FC<PostRowProps> = ({
           <span className="text-sm text-gray-600">{post.topic || "-"}</span>
         </TableCell>
 
-        <TableCell className="text-right">
+        <TableCell className="text-right sticky right-0 z-10 bg-white shadow-[-2px_0_4px_rgba(0,0,0,0.05)]">
           <div className="flex gap-1 justify-end">
             <Button
               variant="ghost"
@@ -307,7 +316,7 @@ export const PostRow: React.FC<PostRowProps> = ({
                       Duplicate to Account...
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent>
-                     {credentials
+                      {credentials
                         .filter((c) => c.id !== post.threadsAccountId)
                         .map((account) => (
                           <DropdownMenuItem
@@ -330,7 +339,7 @@ export const PostRow: React.FC<PostRowProps> = ({
                   </DropdownMenuSub>
                 </DropdownMenuContent>
               </DropdownMenu>
-            )}            
+            )}
 
             {isStuckPublishing && onFixStuck && (
               <Button
